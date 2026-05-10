@@ -1,0 +1,32 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  password      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  reports       Report[]
+}
+
+model Report {
+  id            String    @id @default(cuid())
+  userId        String
+  platform      String    // "Shopee" atau "TikTok Shop"
+  fileName      String
+  totalRevenue  Float     @default(0)
+  totalDeduction Float    @default(0)
+  netProfit     Float     @default(0)
+  uploadedAt    DateTime  @default(now())
+  
+  user          User      @relation(fields: [userId], references: [id])
+}
