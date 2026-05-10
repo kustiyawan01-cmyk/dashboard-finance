@@ -8,7 +8,8 @@ import {
   BarChart3,
   ShoppingBag,
   Calculator,
-  LogOut
+  LogOut,
+  Receipt
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -25,6 +26,7 @@ export default function Sidebar() {
     { name: "Keuangan Shopee", href: "/finance-shopee", icon: WalletCards },
     { name: "Master Produk", href: "/products", icon: ShoppingBag },
     { name: "Kalkulator HPP", href: "/kalkulator-hpp", icon: Calculator },
+    { name: "Pengeluaran", href: "/expenses", icon: Receipt },
     { name: "Analytics", href: "/analytics", icon: BarChart3 },
   ];
 
