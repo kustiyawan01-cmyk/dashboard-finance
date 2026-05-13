@@ -6,11 +6,13 @@ import Sidebar from "./components/Sidebar";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  preload: false,
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  preload: false,
 });
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

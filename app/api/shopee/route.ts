@@ -1,55 +1,56 @@
+import { neon } from '@neondatabase/serverless';
 import { NextResponse } from 'next/server';
 
-// MOCK DATABASE (Jika belum pakai database beneran)
-// Jika sudah pakai Prisma, ganti bagian ini dengan query prisma
-let shopeeOrders: any[] = [];
+// Menghubungkan ke Neon menggunakan URL dari .env.local
+const sql = neon(process.env.DATABASE_URL!);
 
+// GET: Mengambil data dari Database
 export async function GET() {
   try {
-    // LOGIKA PRISMA:
-    // const orders = await prisma.shopeeOrder.findMany({ orderBy: { createdAt: 'desc' } });
-    // return NextResponse.json(orders);
-
-    return NextResponse.json(shopeeOrders);
+    // Kita ubah nama kolom database menjadi camelCase agar cocok dengan frontend
+    const data = await sql`
+      SELECT 
+        order_id AS "orderId", 
+        date, 
+        product_name AS "productName", 
+        sku, 
+        quantity, 
+        amount, 
+        status 
+      FROM shopee_orders 
+      ORDER BY date DESC
+    `;
+    return NextResponse.json(data);
   } catch (error) {
+    console.error("Database Error:", error);
     return NextResponse.json({ error: "Gagal mengambil data" }, { status: 500 });
   }
 }
 
+// POST: Menyimpan data baru ke Database
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { orders } = body;
+    const { orders } = await request.json();
 
-    if (!orders || !Array.isArray(orders)) {
-      return NextResponse.json({ error: "Format data tidak valid" }, { status: 400 });
+    // Looping untuk menyimpan setiap baris Excel ke Neon Database
+    // Kita gunakan trik UPSERT (ON CONFLICT DO UPDATE)
+    // Jika Order ID sudah ada di database, ia hanya akan mengupdate statusnya (mencegah data ganda!)
+    for (const order of orders) {
+      await sql`
+        INSERT INTO shopee_orders (order_id, date, product_name, sku, quantity, amount, status)
+        VALUES (${order.order_id}, ${order.date}, ${order.product_name}, ${order.sku}, ${order.quantity}, ${order.amount}, ${order.status})
+        ON CONFLICT (order_id) 
+        DO UPDATE SET 
+          status = EXCLUDED.status, 
+          amount = EXCLUDED.amount,
+          sku = EXCLUDED.sku,
+          product_name = EXCLUDED.product_name;
+      `;
     }
-
-    // LOGIKA PRISMA (Upsert agar tidak double berdasarkan Order ID):
-    /*
-    const savedOrders = await Promise.all(
-      orders.map((order) =>
-        prisma.shopeeOrder.upsert({
-          where: { orderId: order.orderId },
-          update: { ...order },
-          create: { ...order },
-        })
-      )
-    );
-    */
-
-    // MOCK SAVE:
-    // Kita gabungkan data lama dan baru, lalu buang duplikat berdasarkan orderId
-    const newOrders = [...orders, ...shopeeOrders];
-    shopeeOrders = Array.from(new Map(newOrders.map(item => [item.orderId, item])).values());
-
-    return NextResponse.json({ 
-      message: "Data Shopee berhasil disimpan", 
-      count: orders.length 
-    }, { status: 200 });
-
+    
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error API Shopee:", error);
+    console.error("Database Error:", error);
     return NextResponse.json({ error: "Gagal menyimpan data" }, { status: 500 });
   }
 }

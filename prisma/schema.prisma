@@ -30,3 +30,15 @@ model Report {
   
   user          User      @relation(fields: [userId], references: [id])
 }
+
+model ShopeeOrder {
+  id               String   @id @default(cuid())
+  order_id         String   @unique
+  created_date     String
+  settled_date     String
+  qty              Int
+  subtotal         Float
+  shipping_buyer   Float
+  shipping_subsidy Float
+  createdAt        DateTime @default(now())
+}

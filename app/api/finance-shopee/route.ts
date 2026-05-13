@@ -1,70 +1,118 @@
-import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { NextResponse } from 'next/server';
+
+const sql = neon(process.env.DATABASE_URL!);
 
 export async function GET() {
   try {
-    const sql = neon(process.env.DATABASE_URL!);
-    const data = await sql`SELECT * FROM shopee_finances ORDER BY settled_date DESC`;
+    // 1. AUTO-CREATE: Akan otomatis membuat tabel baru dengan struktur yang 100% benar
+    await sql`
+      CREATE TABLE IF NOT EXISTS shopee_finances (
+        order_id VARCHAR(100) PRIMARY KEY,
+        order_status VARCHAR(50),
+        created_date VARCHAR(50),
+        date VARCHAR(50),
+        qty INTEGER,
+        sku VARCHAR(100),
+        product_name TEXT,
+        hpp_per_item NUMERIC,
+        total_hpp NUMERIC,
+        net NUMERIC,
+        laba_bersih NUMERIC,
+        fees NUMERIC,
+        harga_produk NUMERIC,
+        details JSONB
+      );
+    `;
+
+    const data = await sql`SELECT * FROM shopee_finances ORDER BY date DESC`;
     
-    return NextResponse.json(data.map(item => ({
-      orderId: item.order_id,
-      createdDate: item.created_date,
-      date: item.settled_date,
-      originalPrice: Number(item.original_price) || 0,
-      sellerDiscount: Number(item.seller_discount) || 0,
-      shippingBuyer: Number(item.shipping_buyer) || 0,
-      shopeeSubsidy: Number(item.shopee_shipping_subsidy) || 0,
-      voucherShopee: Number(item.voucher_shopee) || 0,
-      cashbackShopee: Number(item.cashback_shopee) || 0,
-      penyesuaianSaldo: Number(item.penyesuaian_saldo) || 0,
-      codBuyer: Number(item.cod_buyer) || 0,
-      kompensasi: Number(item.kompensasi) || 0,
-      adminFee: Number(item.admin_fee) || 0,
-      serviceFee: Number(item.service_fee) || 0,
-      freeOngkirXtra: Number(item.free_ongkir_xtra) || 0,
-      cashbackXtra: Number(item.cashback_xtra) || 0,
-      ams: Number(item.ams_fee) || 0,
-      affiliate: Number(item.affiliate_commission) || 0,
-      pajak: Number(item.pajak) || 0,
-      biayaCod: Number(item.biaya_cod) || 0,
-      voucherSeller: Number(item.voucher_seller) || 0,
-      cashbackSeller: Number(item.cashback_seller) || 0,
-      shopeeAds: Number(item.shopee_ads) || 0,
-      penalti: Number(item.penalti) || 0,
-      refund: Number(item.refund_pembeli) || 0,
-      retur: Number(item.retur_barang) || 0,
-      transferBank: Number(item.transfer_bank_fee) || 0,
-      materai: Number(item.materai_fee) || 0,
-      penyesuaianSistem: Number(item.penyesuaian_sistem) || 0,
-      shippingLogistics: Number(item.shipping_logistics) || 0,
-      net: Number(item.net_settlement) || 0
-    })));
-  } catch (error) { return NextResponse.json({ error: "Gagal ambil data" }, { status: 500 }); }
+    const formattedData = data.map(row => ({
+      orderId: row.order_id,
+      orderStatus: row.order_status,
+      createdDate: row.created_date,
+      date: row.date,
+      qty: row.qty,
+      sku: row.sku,
+      productName: row.product_name,
+      hppPerItem: Number(row.hpp_per_item),
+      totalHpp: Number(row.total_hpp),
+      net: Number(row.net),
+      labaBersih: Number(row.laba_bersih),
+      fees: Number(row.fees),
+      hargaProduk: Number(row.harga_produk),
+      ...(row.details || {}) 
+    }));
+
+    return NextResponse.json(formattedData);
+  } catch (error) {
+    console.error("GET Error:", error);
+    return NextResponse.json({ error: "Gagal mengambil data" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
   try {
-    const sql = neon(process.env.DATABASE_URL!);
     const finances = await request.json();
 
     for (const item of finances) {
+      // JSONB untuk merapikan puluhan data potongan tanpa membuat kolom satu-satu
+      const detailsJson = {
+        ongkirPembeli: item.ongkirPembeli || 0,
+        subsidiOngkir: item.subsidiOngkir || 0,
+        voucherShopee: item.voucherShopee || 0,
+        cashbackShopee: item.cashbackShopee || 0,
+        penyesuaianSaldo: item.penyesuaianSaldo || 0,
+        codPembeli: item.codPembeli || 0,
+        kompensasi: item.kompensasi || 0,
+        admin: item.admin || 0,
+        layanan: item.layanan || 0,
+        ongkirXtra: item.ongkirXtra || 0,
+        cashbackXtra: item.cashbackXtra || 0,
+        ams: item.ams || 0,
+        komisiAffiliate: item.komisiAffiliate || 0,
+        pajak: item.pajak || 0,
+        biayaCod: item.biayaCod || 0,
+        voucherPenjual: item.voucherPenjual || 0,
+        cashbackPenjual: item.cashbackPenjual || 0,
+        shopeeAds: item.shopeeAds || 0,
+        penalti: item.penalti || 0,
+        refund: item.refund || 0,
+        retur: item.retur || 0,
+        transfer: item.transfer || 0,
+        materai: item.materai || 0,
+        penyesuaianSistem: item.penyesuaianSistem || 0
+      };
+
       await sql`
         INSERT INTO shopee_finances (
-          order_id, created_date, settled_date, original_price, seller_discount, shipping_buyer, shopee_shipping_subsidy, 
-          voucher_shopee, cashback_shopee, penyesuaian_saldo, cod_buyer, kompensasi, admin_fee, service_fee, 
-          free_ongkir_xtra, cashback_xtra, ams_fee, affiliate_commission, pajak, biaya_cod, voucher_seller, 
-          cashback_seller, shopee_ads, penalti, refund_pembeli, retur_barang, transfer_bank_fee, materai_fee, 
-          penyesuaian_sistem, shipping_logistics, net_settlement
+          order_id, order_status, created_date, date, qty, sku, product_name, 
+          hpp_per_item, total_hpp, net, laba_bersih, fees, harga_produk, details
         ) VALUES (
-          ${item.orderId}, ${item.createdDate}, ${item.date}, ${item.originalPrice}, ${item.sellerDiscount}, ${item.shippingBuyer}, ${item.shopeeSubsidy},
-          ${item.voucherShopee}, ${item.cashbackShopee}, ${item.penyesuaianSaldo}, ${item.codBuyer}, ${item.kompensasi}, ${item.adminFee}, ${item.serviceFee},
-          ${item.freeOngkirXtra}, ${item.cashbackXtra}, ${item.ams}, ${item.affiliate}, ${item.pajak}, ${item.biayaCod}, ${item.voucherSeller},
-          ${item.cashbackSeller}, ${item.shopeeAds}, ${item.penalti}, ${item.refund}, ${item.retur}, ${item.transferBank}, ${item.materai},
-          ${item.penyesuaianSistem}, ${item.shippingLogistics}, ${item.net}
+          ${item.orderId}, ${item.orderStatus}, ${item.createdDate}, ${item.date}, 
+          ${item.qty}, ${item.sku}, ${item.productName}, ${item.hppPerItem}, 
+          ${item.totalHpp}, ${item.net}, ${item.labaBersih}, ${item.fees}, ${item.hargaProduk}, ${detailsJson}
         )
-        ON CONFLICT (order_id) DO UPDATE SET net_settlement = EXCLUDED.net_settlement;
+        ON CONFLICT (order_id) DO UPDATE SET 
+          order_status = EXCLUDED.order_status,
+          created_date = EXCLUDED.created_date,
+          date = EXCLUDED.date,
+          qty = EXCLUDED.qty,
+          sku = EXCLUDED.sku,
+          product_name = EXCLUDED.product_name,
+          hpp_per_item = EXCLUDED.hpp_per_item,
+          total_hpp = EXCLUDED.total_hpp,
+          net = EXCLUDED.net,
+          laba_bersih = EXCLUDED.laba_bersih,
+          fees = EXCLUDED.fees,
+          harga_produk = EXCLUDED.harga_produk,
+          details = EXCLUDED.details;
       `;
     }
-    return NextResponse.json({ message: "Data Detail Shopee Berhasil Disimpan!" });
-  } catch (error) { return NextResponse.json({ error: "Gagal simpan data" }, { status: 500 }); }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("POST Error:", error);
+    return NextResponse.json({ error: "Gagal menyimpan data" }, { status: 500 });
+  }
 }

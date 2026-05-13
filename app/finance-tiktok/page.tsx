@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Upload, BarChart3, Settings, 
   Table as TableIcon, ChevronLeft, ChevronRight, CheckCircle2,
   WalletCards, TrendingDown, CircleDollarSign, ArrowUpDown, ArrowUp, ArrowDown,
-  Eye, X, Search, Calendar, Save, Check
+  Eye, X, Search, Calendar, Save, Check, ShoppingBag, Download
 } from "lucide-react";
 import Link from "next/link";
 
@@ -76,6 +76,7 @@ const fetchData = async () => {
 
   // STATE FILTER
   const [globalSearch, setGlobalSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Semua Status");
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [tempDateRange, setTempDateRange] = useState({ start: '', end: '' });
@@ -349,7 +350,8 @@ const fetchData = async () => {
               orderId: cleanID, orderStatus: statusPesanan, createdDate, date, qty, subtotal,
               shippingBuyer, shippingSubsidy, adjustment, sellerDiscount,
               platformFee, paymentFee, affiliateFee, freeShippingFee, tax, codFee,
-              fees: finalFees, net, revenue, hppPerItem, totalHpp, labaBersih: finalLabaBersih
+              fees: finalFees, net, revenue, hppPerItem, totalHpp, labaBersih: finalLabaBersih,
+              productName: productName, sku: sku
             });
           }
         }
@@ -419,9 +421,14 @@ const fetchData = async () => {
         matchesDate = datePart >= dateRange.start && datePart <= dateRange.end;
       }
 
-      return matchesSearch && matchesDate;
+      let matchesStatus = true;
+      if (statusFilter !== "Semua Status") {
+        matchesStatus = (item.orderStatus || "Selesai") === statusFilter;
+      }
+
+      return matchesSearch && matchesDate && matchesStatus;
     });
-  }, [finances, globalSearch, dateRange]);
+  }, [finances, globalSearch, dateRange, statusFilter]);
 
   // PRESET TANGGAL UNTUK POPUP
   const handlePresetDate = (days: number) => {
@@ -437,16 +444,18 @@ const fetchData = async () => {
     let totalRevenue = 0;
     let totalFees = 0;
     let totalNet = 0;
-    let totalProfit = 0; // Tambahan untuk profit internal
+    let totalHpp = 0; // Tambahan untuk HPP
+    let totalProfit = 0;
 
     filteredFinances.forEach(item => {
       totalRevenue += item.revenue;
       totalFees += item.fees; 
       totalNet += item.net;
-      totalProfit += (item.labaBersih || 0); // Menjumlahkan laba bersih
+      totalHpp += (item.totalHpp || 0); // Menjumlahkan Total HPP
+      totalProfit += (item.labaBersih || 0);
     });
 
-    return { totalRevenue, totalFees, totalNet, totalProfit };
+    return { totalRevenue, totalFees, totalNet, totalHpp, totalProfit };
   }, [filteredFinances]);
 
   // 4. LOGIKA SORTING
@@ -537,6 +546,38 @@ const formatRupiah = (angka: any) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
   };
 
+  // FUNGSI EXPORT DATA KE EXCEL
+  const handleExportData = () => {
+    if (filteredFinances.length === 0) {
+      alert("Tidak ada data untuk diekspor!");
+      return;
+    }
+
+    // Mapping data agar rapi di Excel
+    const dataToExport = filteredFinances.map((item, index) => ({
+      "No": index + 1,
+      "Order ID": item.orderId,
+      "Status": item.orderStatus || "Selesai",
+      "Tanggal Dibuat": formatDisplayDate(item.createdDate),
+      "Tanggal Selesai": formatDisplayDate(item.date),
+      "Nama Produk": item.productName || "-",
+      "SKU / Variasi": item.sku || "-",
+      "QTY": item.qty || 1,
+      "Harga Jual": item.subtotal / (item.qty || 1),
+      "Harga Modal": item.hppPerItem,
+      "Total HPP": item.totalHpp,
+      "Biaya Admin": item.fees,
+      "Laba Bersih": item.labaBersih
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data Keuangan");
+    
+    // Download file dengan format nama dinamis
+    XLSX.writeFile(workbook, `Keuangan_TikTok_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   return (
     <>
       {/* MAIN CONTENT */}
@@ -567,7 +608,7 @@ const formatRupiah = (angka: any) => {
         </header>
 
         {/* SUMMARY CARDS KEUANGAN */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-4">
           <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center relative overflow-hidden">
             <div className="absolute right-3 top-3 bg-blue-50 p-1.5 rounded-full">
               <CircleDollarSign size={16} className="text-blue-500" />
@@ -595,6 +636,15 @@ const formatRupiah = (angka: any) => {
             <p className="text-[9px] text-slate-400 mt-0.5">Uang bersih cair dari TikTok</p>
           </div>
 
+          <div className="bg-white p-3 rounded-xl border border-orange-100 shadow-sm flex flex-col justify-center relative overflow-hidden">
+            <div className="absolute right-3 top-3 bg-orange-50 p-1.5 rounded-full">
+              <ShoppingBag size={16} className="text-orange-500" />
+            </div>
+            <p className="text-[11px] font-semibold text-orange-500 mb-0.5">Total Modal (HPP)</p>
+            <h3 className="text-lg font-bold text-orange-600">{formatRupiah(summaryMetrics.totalHpp)}</h3>
+            <p className="text-[9px] text-orange-400 mt-0.5">Akumulasi harga modal</p>
+          </div>
+
           <div className="bg-emerald-600 p-3 rounded-xl border border-emerald-700 shadow-md flex flex-col justify-center relative overflow-hidden text-white">
             <div className="absolute right-3 top-3 bg-white/20 p-1.5 rounded-full">
               <BarChart3 size={16} className="text-white" />
@@ -616,6 +666,24 @@ const formatRupiah = (angka: any) => {
               onChange={(e) => { setGlobalSearch(e.target.value); setCurrentPage(1); }}
               className="w-full pl-10 pr-4 py-2 text-sm text-slate-900 bg-slate-50 border border-transparent rounded-lg focus:bg-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
             />
+          </div>
+
+          {/* Filter Status Dropdown */}
+          <div className="relative min-w-[160px]">
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+              className="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-4 pr-10 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm font-medium shadow-sm transition-all cursor-pointer"
+            >
+              <option value="Semua Status">Semua Status</option>
+              <option value="Selesai">Selesai</option>
+              <option value="Retur">Retur</option>
+              <option value="Batal">Batal</option>
+              <option value="Tagihan Iklan">Tagihan Iklan</option>
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
           </div>
 
           <div className="relative">
@@ -654,6 +722,15 @@ const formatRupiah = (angka: any) => {
               </div>
             )}
           </div>
+
+          {/* Tombol Export Data */}
+          <button 
+            onClick={handleExportData}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-lg shadow-sm hover:bg-emerald-100 transition-colors text-sm font-medium ml-auto md:ml-0"
+          >
+            <Download size={16} />
+            Export Data
+          </button>
         </div>
 
 {/* DATA TABLE */}
@@ -666,16 +743,36 @@ const formatRupiah = (angka: any) => {
               {/* Tambahkan sticky, top-0, dan z-10 agar menempel di atas */}
               <thead className="bg-slate-50 sticky top-0 z-10 outline outline-1 outline-slate-200 shadow-sm">
                 <tr>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Order ID</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Tgl Dibuat</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Tgl Selesai</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-center">QTY</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right">Harga Jual</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right font-bold bg-slate-100/50">Harga Modal</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-right font-bold bg-slate-100/50">Total HPP</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-red-500 uppercase tracking-wider text-right">Biaya Admin</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-emerald-600 uppercase tracking-wider text-right font-bold">Laba Bersih</th>
+                  <th onClick={() => requestSort('orderId')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors">
+                    <div className="flex items-center">Order ID {getSortIcon('orderId')}</div>
+                  </th>
+                  <th onClick={() => requestSort('orderStatus')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors">
+                    <div className="flex items-center">Status {getSortIcon('orderStatus')}</div>
+                  </th>
+                  <th onClick={() => requestSort('createdDate')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors">
+                    <div className="flex items-center">Tgl Dibuat {getSortIcon('createdDate')}</div>
+                  </th>
+                  <th onClick={() => requestSort('date')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors">
+                    <div className="flex items-center">Tgl Selesai {getSortIcon('date')}</div>
+                  </th>
+                  <th onClick={() => requestSort('qty')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors text-center">
+                    <div className="flex items-center justify-center">QTY {getSortIcon('qty')}</div>
+                  </th>
+                  <th onClick={() => requestSort('subtotal')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors text-right">
+                    <div className="flex items-center justify-end">Harga Jual {getSortIcon('subtotal')}</div>
+                  </th>
+                  <th onClick={() => requestSort('hppPerItem')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-200 transition-colors text-right font-bold bg-slate-100/50">
+                    <div className="flex items-center justify-end">Harga Modal {getSortIcon('hppPerItem')}</div>
+                  </th>
+                  <th onClick={() => requestSort('totalHpp')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-200 transition-colors text-right font-bold bg-slate-100/50">
+                    <div className="flex items-center justify-end">Total HPP {getSortIcon('totalHpp')}</div>
+                  </th>
+                  <th onClick={() => requestSort('fees')} className="px-6 py-3.5 text-[11px] font-semibold text-red-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors text-right">
+                    <div className="flex items-center justify-end">Biaya Admin {getSortIcon('fees')}</div>
+                  </th>
+                  <th onClick={() => requestSort('labaBersih')} className="px-6 py-3.5 text-[11px] font-semibold text-emerald-600 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors text-right font-bold">
+                    <div className="flex items-center justify-end">Laba Bersih {getSortIcon('labaBersih')}</div>
+                  </th>
                   <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-center">Detail</th>
                 </tr>
               </thead>
@@ -830,13 +927,17 @@ const formatRupiah = (angka: any) => {
                       <button className="text-indigo-500 hover:text-indigo-700"><Search size={14} /></button>
                     </p>
                   </div>
-                  <div>
-                    <p className="text-slate-500 mb-1">Tipe</p>
-                    <p className="font-semibold text-slate-900">Pesanan TikTok</p>
+                  <div className="min-w-0">
+                    <p className="text-slate-500 mb-1">Nama Produk</p>
+                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.productName || "Tidak Diketahui"}>
+                      {selectedOrder.productName || "Tidak Diketahui"}
+                    </p>
                   </div>
-                  <div>
-                    <p className="text-slate-500 mb-1">Mata Uang</p>
-                    <p className="font-semibold text-slate-900">IDR</p>
+                  <div className="min-w-0">
+                    <p className="text-slate-500 mb-1">SKU / Variasi</p>
+                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.sku || "-"}>
+                      {selectedOrder.sku || "-"}
+                    </p>
                   </div>
                 </div>
 

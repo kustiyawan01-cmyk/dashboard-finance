@@ -6,160 +6,237 @@ import {
   LayoutDashboard, Upload, BarChart3, Settings, 
   Table as TableIcon, ChevronLeft, ChevronRight, CheckCircle2,
   WalletCards, TrendingDown, CircleDollarSign, ArrowUpDown, ArrowUp, ArrowDown,
-  Eye, X, Search, Calendar, Save, ShoppingBag
+  Eye, X, Search, Calendar, Save, Check, ShoppingBag, Download, Receipt, TrendingUp,
+  Megaphone, Users, Truck, Box, Percent, Wallet, Lock, Package
 } from "lucide-react";
-import Link from "next/link";
 
 export default function FinanceShopeePage() {
   const [finances, setFinances] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // STATE UNTUK PAGINATION & FILTER
+  // STATE UNTUK MENAMPUNG DATA PENJUALAN & PRODUK (Untuk tarik QTY, SKU & HPP)
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+
+  // STATE FILTER & PAGINATION
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
+  // Default langsung diurutkan berdasarkan Tanggal Selesai (date) dari yang Paling Baru (desc)
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'date', direction: 'desc' });
+  
   const [globalSearch, setGlobalSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Semua Status");
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [tempDateRange, setTempDateRange] = useState({ start: '', end: '' });
+  
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
 
-useEffect(() => {
-    const fetchFinance = async () => {
+  // --- FETCH DATA AWAL ---
+  useEffect(() => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/finance-shopee');
-        if (res.ok) {
-          const data = await res.json();
-          // Hitung ulang 'fees' DAN 'revenue' agar muncul di Summary Cards setelah refresh
-          const calculatedData = data.map((item: any) => {
-            const originalPrice = Number(item.originalPrice) || 0;
-            const sellerDiscount = Number(item.sellerDiscount) || 0;
-            
-            return {
-              ...item,
-              // Hitung Pendapatan Kotor (Sesuai rumus: Harga Asli - Diskon Produk)
-              revenue: originalPrice - Math.abs(sellerDiscount),
-              // Hitung Total Semua Potongan Shopee yang Baru
-              fees: Math.abs(item.adminFee || 0) + 
-                    Math.abs(item.serviceFee || 0) + 
-                    Math.abs(item.freeOngkirXtra || 0) +
-                    Math.abs(item.cashbackXtra || 0) +
-                    Math.abs(item.ams || 0) +
-                    Math.abs(item.affiliate || 0) +
-                    Math.abs(item.pajak || 0) +
-                    Math.abs(item.biayaCod || 0) +
-                    Math.abs(item.shopeeAds || 0) +
-                    Math.abs(item.penalti || 0) +
-                    Math.abs(item.refund || 0) +
-                    Math.abs(item.retur || 0) +
-                    Math.abs(item.transferBank || 0) +
-                    Math.abs(item.materai || 0) +
-                    Math.abs(item.penyesuaianSistem || 0) +
-                    Math.abs(item.shippingLogistics || 0)
-            };
-          });
-          setFinances(calculatedData);
-        }
+        // Tarik Penjualan Shopee (Untuk QTY & SKU)
+        const resSales = await fetch('/api/shopee');
+        if (resSales.ok) setSalesOrders(await resSales.json());
+
+        // Tarik Database Finance Shopee
+        const resFinance = await fetch('/api/finance-shopee');
+        if (resFinance.ok) setFinances(await resFinance.json());
+
+        // Tarik Master Produk (Untuk HPP)
+        const resProducts = await fetch('/api/products');
+        if (resProducts.ok) setProducts(await resProducts.json());
       } catch (error) {
-        console.error("Gagal menarik data Shopee");
+        console.error("Gagal menarik data", error);
       }
     };
-    fetchFinance();
+    fetchData();
   }, []);
 
-  // 2. LOGIKA UPLOAD CSV SHOPEE (Auto-Detect Header)
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // --- FUNGSI UPLOAD EXCEL SHOPEE (SANGAT TANGGUH) ---
+  const handleFileUpload = (e: any) => {
+    const file = e.target.files[0];
     if (!file) return;
     setIsUploading(true);
-    
+
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (evt: any) => {
       try {
-        const binaryData = event.target?.result as string;
-        const workbook = XLSX.read(binaryData, { type: "binary" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const data = new Uint8Array(evt.target.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
         
-        // CARI BARIS HEADER
-        const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
-        let headerRowIndex = -1;
-        
-        for (let i = 0; i < Math.min(20, rawData.length); i++) {
-          const rowText = String(rawData[i]?.join(" ")).toLowerCase();
-          if (rowText.includes("no. pesanan") || rowText.includes("waktu pesanan")) {
-            headerRowIndex = i;
-            break;
+        // Cari sheet Income / Laporan Penghasilan
+        const wsname = wb.SheetNames.find(name => name.toLowerCase().includes('income') || name.toLowerCase().includes('penghasilan')) || wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, raw: false, defval: "" });
+
+        // Cari Baris Header Asli
+        let headerIdx = -1;
+        for (let i = 0; i < Math.min(20, rows.length); i++) {
+          const rowStr = rows[i].join("|").toLowerCase();
+          if (rowStr.includes("no. pesanan") || rowStr.includes("order id")) {
+            headerIdx = i; break;
           }
         }
 
-        if (headerRowIndex === -1) throw new Error("Header tidak ditemukan");
+        if (headerIdx === -1) {
+           alert("Gagal menemukan kolom 'No. Pesanan'. Pastikan ini laporan Penghasilan Shopee yang benar.");
+           setIsUploading(false); return; 
+        }
 
-        const parsedData = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
-
-        const getVal = (row: any, keyName: string) => {
-          const actualKey = Object.keys(row).find(k => k.trim().toLowerCase() === keyName.toLowerCase());
-          return actualKey ? row[actualKey] : undefined;
+        const headers = Array.from(rows[headerIdx] || []).map(h => String(h || "").trim().toLowerCase());
+        
+        // Perbaikan Logika: Utamakan kecocokan nama persis agar tidak tertukar dengan kolom Tanggal
+        const findIdx = (keys: string[]) => {
+          let idx = headers.findIndex(h => keys.includes(h)); 
+          if (idx === -1) {
+            idx = headers.findIndex(h => keys.some(k => h.includes(k)));
+          }
+          return idx;
         };
 
-const formattedData = parsedData
-  .filter(row => getVal(row, "No. Pesanan"))
-  .map((row) => {
-    const originalPrice = Number(getVal(row, "Harga Asli Produk")) || 0;
-    const sellerDiscount = Number(getVal(row, "Total Diskon Produk")) || 0;
-    const net = Number(getVal(row, "Pelepasan Dana")) || Number(getVal(row, "Total Penghasilan")) || 0;
+        // MAPPING KOLOM SHOPEE
+        const iID = findIdx(['no. pesanan', 'order id']);
+        const iStatus = findIdx(['status']);
+        const iCreatedDate = findIdx(['waktu pesanan dibuat']);
+        const iDate = findIdx(['tanggal dana dilepaskan', 'waktu penyelesaian']);
+        
+        // MAPPING PEMASUKAN SHOPEE
+        const iHargaAsli = findIdx(['harga asli produk']);
+        const iOngkirPembeli = findIdx(['ongkir dibayar pembeli']);
+        const iSubsidiOngkir = findIdx(['gratis ongkir dari shopee', 'subsidi ongkos kirim shopee', 'diskon ongkir ditanggung jasa kirim']);
+        const iVoucherShopee = findIdx(['diskon produk dari shopee', 'voucher ditanggung shopee']);
+        const iCashbackShopee = findIdx(['cashback shopee']);
+        const iPenyesuaianSaldo = findIdx(['penyesuaian saldo']);
+        const iCodPembeli = findIdx(['biaya cod dibayar pembeli']);
+        const iKompensasi = findIdx(['kompensasi shopee', 'kompensasi']);
+        const iDanaDiterima = findIdx(['total penghasilan', 'dana dilepaskan']);
 
-    return {
-      orderId: String(getVal(row, "No. Pesanan") || "-"),
-      createdDate: String(getVal(row, "Waktu Pesanan Dibuat") || "-"),
-      date: String(getVal(row, "Tanggal Dana Dilepaskan") || "-"),
-      originalPrice,
-      sellerDiscount,
-      shippingBuyer: Number(getVal(row, "Ongkir Dibayar Pembeli")) || 0,
-      shopeeSubsidy: Number(getVal(row, "Gratis Ongkir dari Shopee")) || 0,
-      voucherShopee: Number(getVal(row, "Voucher Ditanggung Shopee")) || 0,
-      cashbackShopee: Number(getVal(row, "Cashback Ditanggung Shopee")) || 0,
-      penyesuaianSaldo: Number(getVal(row, "Penyesuaian Saldo")) || 0,
-      codBuyer: Number(getVal(row, "Biaya COD Dibayar Pembeli")) || 0,
-      kompensasi: Number(getVal(row, "Kompensasi")) || 0,
-      adminFee: Number(getVal(row, "Biaya Administrasi")) || 0,
-      serviceFee: Number(getVal(row, "Biaya Layanan")) || 0,
-      freeOngkirXtra: Number(getVal(row, "Biaya Program Gratis Ongkir XTRA")) || 0,
-      cashbackXtra: Number(getVal(row, "Biaya Program Cashback XTRA")) || 0,
-      ams: Number(getVal(row, "Biaya Affiliate Marketing Solution")) || 0,
-      affiliate: Number(getVal(row, "Komisi Shopee Affiliate")) || 0,
-      pajak: Number(getVal(row, "Pajak")) || 0,
-      biayaCod: Number(getVal(row, "Biaya COD")) || 0,
-      voucherSeller: Number(getVal(row, "Voucher disponsor oleh Penjual")) || 0,
-      cashbackSeller: Number(getVal(row, "Cashback Koin disponsori Penjual")) || 0,
-      shopeeAds: Number(getVal(row, "Biaya Iklan Shopee Ads")) || Number(getVal(row, "Biaya Iklan")) || 0,
-      penalti: Number(getVal(row, "Penalti")) || 0,
-      refund: Number(getVal(row, "Jumlah Pengembalian Dana ke Pembeli")) || 0,
-      retur: Number(getVal(row, "Retur Barang")) || 0,
-      transferBank: Number(getVal(row, "Biaya Transfer Bank")) || 0,
-      materai: Number(getVal(row, "Biaya Materai")) || 0,
-      penyesuaianSistem: Number(getVal(row, "Penyesuaian Sistem")) || Number(getVal(row, "Potongan Lainnya")) || 0,
-      shippingLogistics: Number(getVal(row, "Ongkir yang Diteruskan oleh Shopee ke Jasa Kirim")) || 0,
-      net: net,
-      qty: Number(getVal(row, "Jumlah")) || 1,
-      revenue: originalPrice - Math.abs(sellerDiscount)
-    };
-  });
+        // MAPPING POTONGAN SHOPEE
+        const iAdmin = findIdx(['biaya administrasi']);
+        const iLayanan = findIdx(['biaya layanan']);
+        const iOngkirXtra = findIdx(['biaya program hemat biaya kirim', 'biaya program gratis ongkir xtra']);
+        const iCashbackXtra = findIdx(['biaya kampanye', 'biaya cashback xtra']);
+        const iAms = findIdx(['biaya komisi ams', 'biaya affiliate marketing solution']);
+        const iKomisiAffiliate = findIdx(['komisi shopee affiliate']);
+        const iPajak = findIdx(['bea masuk, ppn & pph', 'pajak']);
+        const iBiayaCod = findIdx(['biaya cod', 'biaya penanganan']);
+        const iVoucherPenjual = findIdx(['voucher disponsori oleh penjual', 'voucher ditanggung penjual', 'total diskon produk']);
+        const iCashbackPenjual = findIdx(['cashback koin co-fund disponsori penjual', 'cashback ditanggung penjual']);
+        const iShopeeAds = findIdx(['biaya iklan', 'shopee ads']);
+        const iPenalti = findIdx(['penalti', 'denda']);
+        const iRefund = findIdx(['jumlah pengembalian dana ke pembeli', 'refund pembeli']);
+        const iRetur = findIdx(['ongkos kirim pengembalian barang', 'retur barang']);
+        const iTransfer = findIdx(['biaya transfer']);
+        const iMaterai = findIdx(['biaya materai']);
+        const iPenyesuaianSistem = findIdx(['penyesuaian sistem']);
 
-        setFinances(formattedData);
-        setCurrentPage(1);
-      } catch (error) {
-        console.error(error);
-        alert("Gagal membaca file. Pastikan mengunggah Laporan Penghasilan Shopee yang benar.");
-      } finally {
+        let finalData: any[] = [];
+
+        for (let i = headerIdx + 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || !row[iID]) continue;
+
+          let cleanID = String(row[iID]).trim(); 
+          if (cleanID.length < 5) continue;
+
+          const cleanNum = (val: any) => {
+            if (!val) return 0;
+            let s = String(val).replace(/[^0-9.-]+/g, "");
+            const num = parseFloat(s);
+            return isNaN(num) ? 0 : Math.round(num);
+          };
+
+          // TARIK DATA PRODUK DARI SALES
+          const matchingSales = salesOrders.find((s: any) => String(s.orderId || s.order_id).trim() === cleanID);
+          let qty = matchingSales?.quantity || matchingSales?.qty || 1;
+          let sku = matchingSales?.sku || matchingSales?.sku_produk || null;
+          let productName = matchingSales?.productName || matchingSales?.nama_produk || "Produk Shopee";
+
+          // TARIK HPP DARI MASTER PRODUK
+          let hppPerItem = 0;
+          if (sku) {
+            const matchProd = products.find(p => String(p.sku).toLowerCase() === String(sku).toLowerCase());
+            if (matchProd) hppPerItem = cleanNum(matchProd.hargaModal || matchProd.hpp);
+          }
+          if (hppPerItem === 0 && productName) {
+            const matchProdName = products.find(p => String(p.name || p.nama).toLowerCase() === String(productName).toLowerCase());
+            if (matchProdName) hppPerItem = cleanNum(matchProdName.hargaModal || matchProdName.hpp);
+          }
+
+          // PEMASUKAN
+          const hargaProduk = cleanNum(row[iHargaAsli]);
+          const ongkirPembeli = cleanNum(row[iOngkirPembeli]);
+          const subsidiOngkir = cleanNum(row[iSubsidiOngkir]);
+          const voucherShopee = cleanNum(row[iVoucherShopee]);
+          const cashbackShopee = cleanNum(row[iCashbackShopee]);
+          const penyesuaianSaldo = cleanNum(row[iPenyesuaianSaldo]);
+          const codPembeli = cleanNum(row[iCodPembeli]);
+          const kompensasi = cleanNum(row[iKompensasi]);
+          const danaDiterima = cleanNum(row[iDanaDiterima]); // Ini NETT
+
+          // POTONGAN
+          const admin = Math.abs(cleanNum(row[iAdmin]));
+          const layanan = Math.abs(cleanNum(row[iLayanan]));
+          const ongkirXtra = Math.abs(cleanNum(row[iOngkirXtra]));
+          const cashbackXtra = Math.abs(cleanNum(row[iCashbackXtra]));
+          const ams = Math.abs(cleanNum(row[iAms]));
+          const komisiAffiliate = Math.abs(cleanNum(row[iKomisiAffiliate]));
+          const pajak = Math.abs(cleanNum(row[iPajak]));
+          const biayaCod = Math.abs(cleanNum(row[iBiayaCod]));
+          const voucherPenjual = Math.abs(cleanNum(row[iVoucherPenjual]));
+          const cashbackPenjual = Math.abs(cleanNum(row[iCashbackPenjual]));
+          const shopeeAds = Math.abs(cleanNum(row[iShopeeAds]));
+          const penalti = Math.abs(cleanNum(row[iPenalti]));
+          const refund = Math.abs(cleanNum(row[iRefund]));
+          const retur = Math.abs(cleanNum(row[iRetur]));
+          const transfer = Math.abs(cleanNum(row[iTransfer]));
+          const materai = Math.abs(cleanNum(row[iMaterai]));
+          const penyesuaianSistem = Math.abs(cleanNum(row[iPenyesuaianSistem]));
+
+          const totalPotongan = admin + layanan + ongkirXtra + cashbackXtra + ams + komisiAffiliate + pajak + biayaCod + voucherPenjual + cashbackPenjual + shopeeAds + penalti + refund + retur + transfer + materai + penyesuaianSistem;
+          
+          let statusPesanan = String(row[iStatus] || matchingSales?.status || "Selesai");
+          if (refund > 0 || retur > 0) statusPesanan = "Retur / Refund";
+
+          const isCancelled = statusPesanan.toLowerCase().includes("batal");
+          const totalHpp = isCancelled ? 0 : (qty * hppPerItem);
+          const labaBersih = isCancelled ? 0 : (danaDiterima - totalHpp);
+
+          finalData.push({
+            orderId: cleanID, orderStatus: statusPesanan, 
+            createdDate: String(row[iCreatedDate] || "-"), date: String(row[iDate] || "-"), 
+            qty, sku, productName, hppPerItem, totalHpp, 
+            net: danaDiterima, labaBersih,
+            
+            // Simpan Pemasukan
+            hargaProduk, ongkirPembeli, subsidiOngkir, voucherShopee, cashbackShopee, 
+            penyesuaianSaldo, codPembeli, kompensasi,
+            
+            // Simpan Potongan
+            admin, layanan, ongkirXtra, cashbackXtra, ams, komisiAffiliate, pajak, biayaCod,
+            voucherPenjual, cashbackPenjual, shopeeAds, penalti, refund, retur, transfer, materai, penyesuaianSistem,
+            fees: totalPotongan
+          });
+        }
+
+        if (finalData.length === 0) alert("Data kosong / Format Excel tidak sesuai.");
+        else setFinances(finalData);
+
         setIsUploading(false);
-        e.target.value = ""; 
+      } catch (err) {
+        console.error(err);
+        alert("Gagal membaca file.");
+        setIsUploading(false);
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
-  // 3. SIMPAN KE NEON
   const handleSaveToDatabase = async () => {
-    if (finances.length === 0) return alert("Upload file dulu!");
+    if (finances.length === 0) return;
     setIsSaving(true);
     try {
       const response = await fetch('/api/finance-shopee', {
@@ -167,328 +244,415 @@ const formattedData = parsedData
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(finances),
       });
-      if (response.ok) alert("Data Keuangan Shopee Sinkron!");
-      else alert("Gagal simpan ke Cloud.");
-    } catch (error) {
-      alert("Kesalahan koneksi Database.");
-    } finally { setIsSaving(false); }
+      if (response.ok) alert("Data berhasil disimpan ke Database!");
+    } catch (error) { alert("Gagal menyimpan data."); }
+    finally { setIsSaving(false); }
   };
 
-  // FORMATTERS
-  const formatRupiah = (angka: any) => {
-    const val = Number(angka) || 0;
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
-  };
-
-  const formatDisplayDate = (dateVal: any) => {
-    if (!dateVal || dateVal === "-" || dateVal === "undefined") return "-";
-    try {
-      if (!isNaN(Number(dateVal)) && Number(dateVal) > 30000) {
-        const jsDate = new Date(Math.round((Number(dateVal) - 25569) * 86400 * 1000));
-        return `${String(jsDate.getDate()).padStart(2, '0')}/${String(jsDate.getMonth() + 1).padStart(2, '0')}/${jsDate.getFullYear()}`;
-      }
-      return String(dateVal).split(" ")[0];
-    } catch (e) { return String(dateVal); }
-  };
-
-  // 4. SUMMARY CARDS
-  const summaryMetrics = useMemo(() => {
-    let totalRevenue = 0; let totalFees = 0; let totalNet = 0;
-    finances.forEach(item => {
-      totalRevenue += item.revenue;
-      totalFees += item.fees;
-      totalNet += item.net;
-    });
-    return { totalRevenue, totalFees, totalNet };
-  }, [finances]);
-
-  // 5. FILTERING
+  // --- LOGIKA FILTERING & SORTING SAMA PERSIS TIKTOK ---
   const filteredFinances = useMemo(() => {
     return finances.filter(item => {
-      const matchesSearch = item.orderId.toLowerCase().includes(globalSearch.toLowerCase());
-      return matchesSearch;
+      const matchesSearch = globalSearch === "" || String(item.orderId).toLowerCase().includes(globalSearch.toLowerCase());
+      const matchesStatus = statusFilter === "Semua Status" || item.orderStatus === statusFilter;
+      let matchesDate = true;
+      if (dateRange.start && dateRange.end && item.date && item.date !== "-") {
+        const datePart = String(item.date).split(" ")[0].replace(/\//g, "-"); 
+        matchesDate = datePart >= dateRange.start && datePart <= dateRange.end;
+      }
+      return matchesSearch && matchesStatus && matchesDate;
     });
-  }, [finances, globalSearch]);
+  }, [finances, globalSearch, statusFilter, dateRange]);
 
-  // 6. PAGINATION
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredFinances.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredFinances.length / (itemsPerPage || 1));
+  const summaryMetrics = useMemo(() => {
+    let omzet = 0, produkTerjual = 0, totalFee = 0, iklan = 0, affiliate = 0, gratisOngkir = 0;
+    let modal = 0, profitBersih = 0, saldo = 0, danaCair = 0, danaDitahan = 0;
 
-  const generatePagination = () => {
-    const pages = [];
-    if (totalPages <= 7) { for (let i = 1; i <= totalPages; i++) pages.push(i); }
-    else {
-      if (currentPage <= 4) pages.push(1, 2, 3, 4, 5, '...', totalPages);
-      else if (currentPage >= totalPages - 3) pages.push(1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
-      else pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
+    filteredFinances.forEach(item => {
+      omzet += (item.hargaProduk || 0);
+      produkTerjual += (item.qty || 0);
+      totalFee += (item.fees || 0);
+      iklan += (item.shopeeAds || 0);
+      affiliate += ((item.komisiAffiliate || 0) + (item.ams || 0));
+      gratisOngkir += (item.ongkirXtra || 0);
+      modal += (item.totalHpp || 0);
+      profitBersih += (item.labaBersih || 0);
+      saldo += (item.net || 0);
+
+      // Logika Dana Cair (Hanya yang statusnya selesai)
+      if (item.orderStatus === "Selesai") {
+        danaCair += (item.net || 0);
+      } else {
+        danaDitahan += (item.net || 0);
+      }
+    });
+
+    const totalOrder = filteredFinances.length;
+    const aov = totalOrder > 0 ? omzet / totalOrder : 0;
+    const profitKotor = omzet - modal;
+    const margin = omzet > 0 ? (profitBersih / omzet) * 100 : 0;
+
+    return {
+      omzet, totalOrder, produkTerjual, aov,
+      totalFee, iklan, affiliate, gratisOngkir,
+      modal, profitKotor, profitBersih, margin,
+      saldo, danaCair, danaDitahan, settlement: saldo
+    };
+  }, [filteredFinances]);
+
+  const sortedFinances = useMemo(() => {
+    let sortableItems = [...filteredFinances];
+    if (sortConfig !== null) {
+      sortableItems.sort((a, b) => {
+        let aValue = a[sortConfig.key];
+        let bValue = b[sortConfig.key];
+
+        // KHUSUS UNTUK TANGGAL: Ubah teks menjadi angka waktu agar urutannya 100% akurat
+        if (sortConfig.key === 'date' || sortConfig.key === 'createdDate') {
+          const parseDate = (d: string) => {
+            if (!d || d === "-") return 0;
+            const dateOnly = d.split(" ")[0]; // Buang jam jika ada
+            // Jika format YYYY-MM-DD
+            if (dateOnly.includes("-")) return new Date(dateOnly).getTime();
+            // Jika format DD/MM/YYYY
+            if (dateOnly.includes("/")) {
+              const parts = dateOnly.split("/");
+              if (parts.length === 3) return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+            }
+            return 0;
+          };
+          aValue = parseDate(String(aValue));
+          bValue = parseDate(String(bValue));
+        }
+
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
     }
-    return pages;
-  };
+    return sortableItems;
+  }, [filteredFinances, sortConfig]);
+
+  const requestSort = (key: string) => setSortConfig({ key, direction: sortConfig?.direction === 'asc' ? 'desc' : 'asc' });
+
+  // PAGINATION
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const currentItems = sortedFinances.slice(indexOfLastItem - itemsPerPage, indexOfLastItem);
+  const totalPages = Math.ceil(sortedFinances.length / (itemsPerPage || 1));
+
+  const formatRupiah = (angka: any) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(angka) || 0);
 
   return (
     <>
-      <main className="flex-1 p-8">
+      <main className="flex-1 p-8 h-screen overflow-hidden flex flex-col bg-slate-50/50">
         <header className="mb-8 flex justify-between items-end">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Keuangan Shopee</h2>
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">Laba Rugi & Pencairan Shopee</h2>
             <div className="flex items-center gap-2 mt-1.5">
-              <CheckCircle2 size={14} className="text-[#EE4D2D]" />
-              <span className="text-slate-500 font-medium text-sm">Upload file &quot;Income.csv&quot; Shopee</span>
+              <CheckCircle2 size={10} className="text-[#EE4D2D]" />
+              <span className="text-slate-500 font-medium text-sm">Kelola &quot;Data Keuangan&quot; Shopee Seller</span>
             </div>
           </div>
+          
           <div className="flex gap-3">
-            <button onClick={handleSaveToDatabase} disabled={isSaving || finances.length === 0}
-              className="bg-emerald-600 text-white px-4 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 text-sm font-bold disabled:opacity-50 transition-all shadow-sm">
-              <Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan ke Neon"}
+            <button onClick={handleSaveToDatabase} disabled={isSaving || finances.length === 0} className="bg-[#EE4D2D] text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-[#d73211] disabled:opacity-50 flex items-center gap-2 text-sm font-bold transition-all shadow-sm">
+              <Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan ke Database"}
             </button>
-            <label className="bg-[#EE4D2D] text-white px-4 py-2.5 rounded-lg cursor-pointer hover:bg-[#d73211] flex items-center gap-2 text-sm font-bold shadow-sm transition-all">
-              <Upload size={16} /> {isUploading ? "Memproses..." : "Upload Shopee Income"}
-              <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+            <label className="bg-slate-900 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-slate-800 flex items-center gap-2 text-sm font-bold shadow-sm">
+              <Upload size={16} /> {isUploading ? "Memproses..." : "Upload Excel Laporan"}
+              <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
             </label>
           </div>
         </header>
 
-        {/* SUMMARY CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-            <div className="absolute right-4 top-4 bg-orange-50 p-2 rounded-full"><ShoppingBag size={20} className="text-[#EE4D2D]" /></div>
-            <p className="text-sm font-medium text-slate-500 mb-1">Pendapatan Kotor (Setelah Diskon)</p>
-            <h3 className="text-2xl font-bold text-slate-900">{formatRupiah(summaryMetrics.totalRevenue)}</h3>
+        {/* SUMMARY CARDS KEUANGAN (4 KOTAK UTAMA) */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center relative overflow-hidden">
+            <div className="absolute right-4 top-4 bg-blue-50 p-2 rounded-xl"><CircleDollarSign size={20} className="text-blue-500" /></div>
+            <p className="text-sm font-bold text-slate-500 mb-1">Total Penjualan</p>
+            <h3 className="text-2xl font-black text-slate-900">{formatRupiah(summaryMetrics.omzet)}</h3>
+            <p className="text-xs text-slate-400 mt-1 font-medium">Harga barang asli sebelum dipotong</p>
           </div>
-          <div className="bg-white p-6 rounded-xl border border-red-100 shadow-sm relative overflow-hidden">
-            <div className="absolute right-4 top-4 bg-red-50 p-2 rounded-full"><TrendingDown size={20} className="text-red-500" /></div>
-            <p className="text-sm font-medium text-red-500 mb-1">Total Biaya & Potongan</p>
-            <h3 className="text-2xl font-bold text-red-600">{formatRupiah(summaryMetrics.totalFees)}</h3>
+
+          <div className="bg-white p-5 rounded-2xl border border-red-100 shadow-sm flex flex-col justify-center relative overflow-hidden">
+            <div className="absolute right-4 top-4 bg-red-50 p-2 rounded-xl"><TrendingDown size={20} className="text-red-500" /></div>
+            <p className="text-sm font-bold text-red-500 mb-1">Total Potongan</p>
+            <h3 className="text-2xl font-black text-red-600">-{formatRupiah(summaryMetrics.totalFee)}</h3>
+            <p className="text-xs text-red-400 mt-1 font-medium">Biaya platform, admin, iklan, dll</p>
           </div>
-          <div className="bg-[#EE4D2D] p-6 rounded-xl shadow-md text-white relative overflow-hidden">
-            <div className="absolute right-4 top-4 bg-white/20 p-2 rounded-full"><WalletCards size={20} className="text-white" /></div>
-            <p className="text-sm font-medium text-orange-100 mb-1">Total Pelepasan Dana (Net)</p>
-            <h3 className="text-2xl font-bold text-white">{formatRupiah(summaryMetrics.totalNet)}</h3>
+
+          <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm flex flex-col justify-center relative overflow-hidden">
+            <div className="absolute right-4 top-4 bg-orange-50 p-2 rounded-xl"><ShoppingBag size={20} className="text-[#EE4D2D]" /></div>
+            <p className="text-sm font-bold text-slate-500 mb-1">Total HPP Produk</p>
+            <h3 className="text-2xl font-black text-slate-900">{formatRupiah(summaryMetrics.modal)}</h3>
+            <p className="text-xs text-slate-400 mt-1 font-medium">Akumulasi modal barang terjual</p>
           </div>
+
+          <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-5 rounded-2xl border border-emerald-600 shadow-md flex flex-col justify-center relative overflow-hidden text-white">
+            <div className="absolute right-4 top-4 bg-white/20 p-2 rounded-xl"><BarChart3 size={20} className="text-white" /></div>
+            <p className="text-sm font-bold text-emerald-100 mb-1">Profit Bersih</p>
+            <h3 className="text-2xl font-black text-white">{formatRupiah(summaryMetrics.profitBersih)}</h3>
+            <p className="text-xs text-emerald-100 mt-1 font-medium">Pencairan (Settlement) - Total HPP</p>
+          </div>
+
         </div>
 
         {/* FILTER BAR */}
         <div className="mb-4 flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex-1 min-w-[300px] relative">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Cari No. Pesanan..." value={globalSearch}
-              onChange={(e) => { setGlobalSearch(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 border border-transparent rounded-lg focus:bg-white outline-none focus:ring-1 focus:ring-[#EE4D2D] transition-all" />
+            <input type="text" placeholder="Cari Order ID..." value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 rounded-lg outline-none focus:ring-1 focus:ring-[#EE4D2D]" />
           </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2 pl-4 pr-8 bg-white border border-slate-200 rounded-lg text-sm outline-none cursor-pointer">
+            <option value="Semua Status">Semua Status</option>
+            <option value="Selesai">Selesai</option>
+            <option value="Retur / Refund">Retur / Refund</option>
+            <option value="Batal">Batal</option>
+          </select>
+          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm hover:bg-slate-50"><Calendar size={16} className="text-[#EE4D2D]"/> Filter Tanggal</button>
+          <button className="flex items-center gap-2 px-4 py-2 bg-orange-50 text-[#EE4D2D] border border-orange-200 rounded-lg text-sm font-medium hover:bg-orange-100 ml-auto"><Download size={16}/> Export Data</button>
         </div>
 
-        {/* DATA TABLE (SATU SAJA, TIDAK GANDA) */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-auto max-h-[65vh]">
-            <table className="w-full text-left border-collapse relative">
-              <thead className="bg-slate-50 sticky top-0 z-10 outline outline-1 outline-slate-200 shadow-sm">
+        {/* TABEL DATA */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-0">
+          <div className="overflow-auto flex-1 relative">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50 sticky top-0 z-10 outline outline-1 outline-slate-200">
                 <tr>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">1. No. Pesanan</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">2. Tgl Selesai</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">3. QTY</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">4. Harga Jual</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">5. Harga Modal</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">6. Total HPP</th>
-                  <th className="px-6 py-4 text-xs font-bold text-red-500 uppercase tracking-wider text-right">7. Total Potongan</th>
-                  <th className="px-6 py-4 text-xs font-bold text-emerald-600 uppercase tracking-wider text-right">8. Laba Bersih</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Detail</th>
+                  <th onClick={()=>requestSort('orderId')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase cursor-pointer hover:bg-slate-100">Order ID</th>
+                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase">Status</th>
+                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase">Tgl Selesai</th>
+                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase text-center">QTY</th>
+                  <th onClick={()=>requestSort('hargaProduk')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase cursor-pointer text-right">Harga Jual</th>
+                  <th onClick={()=>requestSort('hppPerItem')} className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase bg-slate-100/50 text-right">Harga Modal</th>
+                  <th onClick={()=>requestSort('totalHpp')} className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase bg-slate-100/50 text-right">Total HPP</th>
+                  <th onClick={()=>requestSort('fees')} className="px-6 py-3.5 text-[11px] font-semibold text-red-500 uppercase text-right">Potongan</th>
+                  <th onClick={()=>requestSort('labaBersih')} className="px-6 py-3.5 text-[11px] font-bold text-emerald-600 uppercase text-right">Laba Bersih</th>
+                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase text-center">Detail</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {currentItems.map((item, index) => (
-                  <tr key={index} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-mono text-slate-600 font-medium">{item.orderId}</td>
-                    <td className="px-6 py-4 text-sm text-slate-700 font-medium">{formatDisplayDate(item.date)}</td>
-                    <td className="px-6 py-4 text-base text-center text-slate-700 font-semibold">{item.qty || 1}</td>
-                    <td className="px-6 py-4 text-base text-right text-slate-700 font-medium">{formatRupiah(item.originalPrice)}</td>
-                    <td className="px-6 py-4 text-base text-right text-slate-600">{formatRupiah(item.hpp || 0)}</td>
-                    <td className="px-6 py-4 text-base text-right text-slate-600">{formatRupiah(item.totalHpp || 0)}</td>
-                    {/* Menggunakan item.fees agar seluruh potongan Shopee dijumlahkan */}
-                    <td className="px-6 py-4 text-base text-right text-red-500 font-semibold">{formatRupiah(item.fees)}</td>
-                    <td className="px-6 py-4 text-base text-right text-emerald-600 font-bold">{formatRupiah(item.labaBersih || item.net)}</td>
+                {currentItems.map((item, i) => (
+                  <tr key={i} className="hover:bg-orange-50/30">
+                    <td className="px-6 py-4 text-sm font-mono font-bold text-slate-900">{item.orderId}</td>
+                    <td className="px-6 py-4"><span className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded-md ${item.orderStatus.includes('Retur')?'bg-red-100 text-red-600':item.orderStatus.includes('Batal')?'bg-slate-100 text-slate-600':'bg-emerald-100 text-emerald-600'}`}>{item.orderStatus}</span></td>
+                    <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{item.date?.split(" ")[0]}</td>
+                    <td className="px-6 py-4 text-sm text-center font-bold">{item.qty}</td>
+                    <td className="px-6 py-4 text-sm text-right text-slate-600">{formatRupiah(item.hargaProduk)}</td>
+                    <td className="px-6 py-4 text-sm text-right text-slate-500">{formatRupiah(item.hppPerItem)}</td>
+                    <td className="px-6 py-4 text-sm text-right bg-slate-50 font-bold text-slate-700">{formatRupiah(item.totalHpp)}</td>
+                    <td className="px-6 py-4 text-sm text-right text-red-500">-{formatRupiah(item.fees)}</td>
+                    <td className={`px-6 py-4 text-sm text-right font-bold ${item.labaBersih < 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatRupiah(item.labaBersih)}</td>
                     <td className="px-6 py-4 text-center">
-                      <button onClick={() => setSelectedOrder(item)} className="p-2 text-slate-400 hover:text-[#EE4D2D] transition-colors"><Eye size={20} /></button>
+                      <button onClick={() => setSelectedOrder(item)} className="p-1.5 text-slate-400 hover:text-[#EE4D2D] hover:bg-orange-50 rounded-md"><Eye size={18}/></button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
+          
           {/* PAGINATION FOOTER */}
-          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-sm text-slate-500">
-              Menampilkan <span className="font-medium text-slate-900">{currentItems.length}</span> dari <span className="font-medium text-slate-900">{filteredFinances.length}</span> data
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
-                  className="appearance-none bg-white border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-[#EE4D2D] focus:border-[#EE4D2D] block w-full pl-3 pr-8 py-1.5 cursor-pointer outline-none transition-all shadow-sm"
-                >
-                  <option value={10}>10 per halaman</option>
-                  <option value={20}>20 per halaman</option>
-                  <option value={50}>50 per halaman</option>
-                  <option value={100}>100 per halaman</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                  </svg>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
-                <button 
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  className="p-1 rounded text-slate-500 hover:bg-slate-100 hover:text-[#EE4D2D] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                
-                <div className="flex items-center px-1">
-                  {generatePagination().map((page, idx) => (
-                    <button 
-                      key={idx}
-                      onClick={() => typeof page === 'number' && setCurrentPage(page)}
-                      disabled={page === '...'}
-                      className={`min-w-[28px] h-[28px] flex items-center justify-center text-sm rounded transition-all ${
-                        currentPage === page 
-                          ? 'bg-[#EE4D2D] text-white font-medium shadow-sm' 
-                          : page === '...' 
-                          ? 'text-slate-400 cursor-default' 
-                          : 'text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
-                </div>
-
-                <button 
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  className="p-1 rounded text-slate-500 hover:bg-slate-100 hover:text-[#EE4D2D] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-            </div>
+          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-sm text-slate-500">
+             <span>Menampilkan {filteredFinances.length === 0 ? 0 : indexOfLastItem - itemsPerPage + 1} - {Math.min(indexOfLastItem, filteredFinances.length)} dari {filteredFinances.length} data</span>
+             <div className="flex gap-2">
+                <button onClick={() => setCurrentPage(p=>p-1)} disabled={currentPage===1} className="px-3 py-1 bg-white border rounded hover:bg-slate-50 disabled:opacity-50">Prev</button>
+                <button onClick={() => setCurrentPage(p=>p+1)} disabled={currentPage===totalPages} className="px-3 py-1 bg-white border rounded hover:bg-slate-50 disabled:opacity-50">Next</button>
+             </div>
           </div>
         </div>
 
-{/* MODAL DETAIL SHOPEE (RINGKAS & SMART) */}
+        {/* MODAL DETAIL KEUANGAN (NEW DESIGN - TIKTOK STYLE WITH SHOPEE DATA) */}
         {selectedOrder && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
-              <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50 sticky top-0 z-10">
-                <div>
-                  <h3 className="font-bold text-[#EE4D2D] text-lg">Rincian Finansial Pesanan</h3>
-                  <p className="text-xs text-slate-500 font-mono mt-0.5">ID: {selectedOrder.orderId}</p>
-                </div>
-                <button onClick={() => setSelectedOrder(null)} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
-              </div>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl relative flex flex-col max-h-[95vh] overflow-hidden animate-in zoom-in-95 duration-300">
               
-              <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto bg-slate-50/30">
+              {/* HEADER */}
+              <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start">
+                <div className="flex gap-4">
+                  <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center shrink-0">
+                    <Calendar className="text-blue-500" size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Detail Penyelesaian Transaksi</h2>
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full text-xs font-semibold border border-emerald-100">
+                        <CheckCircle2 size={12} />
+                        Telah diselesaikan
+                      </div>
+                      <span className="text-slate-500 text-sm">{selectedOrder.date?.split(" ")[0] || "-"}</span>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedOrder(null)}
+                  className="p-2 bg-slate-50 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* BODY (Scrollable) */}
+              <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1">
                 
-                {/* --- 1. SEKSI PEMASUKAN --- */}
-                <section>
-                  <h4 className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <ArrowUp size={14} /> Pemasukan
-                  </h4>
-                  <div className="bg-white p-4 rounded-xl border border-emerald-100 shadow-sm space-y-3 text-sm">
-                    <DetailRow label="Harga Produk" desc="Total harga barang yang dibeli pembeli." value={selectedOrder.originalPrice} />
-                    <DetailRow label="Ongkir Dibayar Pembeli" desc="Biaya pengiriman yang dibayar customer." value={selectedOrder.shippingBuyer} />
-                    <DetailRow label="Subsidi Ongkir Shopee" desc="Bantuan ongkir dari Shopee." value={selectedOrder.shopeeSubsidy} color="text-emerald-600" isPlus />
-                    <DetailRow label="Voucher Ditanggung Shopee" desc="Diskon promo yang dibayar Shopee." value={selectedOrder.voucherShopee} color="text-emerald-600" isPlus />
-                    <DetailRow label="Cashback Shopee" desc="Cashback promo dari Shopee." value={selectedOrder.cashbackShopee} color="text-emerald-600" isPlus />
-                    <DetailRow label="Pendapatan Penjualan" desc="Total pemasukan dari transaksi sebelum dipotong fee." value={selectedOrder.originalPrice - Math.abs(selectedOrder.sellerDiscount || 0)} bold />
-                    <DetailRow label="Dana Diterima" desc="Saldo bersih yang masuk ke akun seller." value={selectedOrder.net} color="text-emerald-600" isPlus bold />
-                    <DetailRow label="Penyesuaian Saldo" desc="Tambahan/koreksi saldo dari Shopee." value={selectedOrder.penyesuaianSaldo} color="text-emerald-600" isPlus />
-                    <DetailRow label="Biaya COD Dibayar Pembeli" desc="Tambahan biaya layanan COD." value={selectedOrder.codBuyer} />
-                    <DetailRow label="Kompensasi Shopee" desc="Ganti rugi atau kompensasi dari sistem." value={selectedOrder.kompensasi} color="text-emerald-600" isPlus />
-                    
-                    {/* TOTAL PENDAPATAN */}
-                    <div className="pt-3 mt-3 border-t-2 border-dashed border-emerald-200 flex justify-between items-center text-emerald-700 font-bold text-base">
-                      <span>Total Pendapatan</span>
-                      <span>{formatRupiah(
-                        Number(selectedOrder.originalPrice || 0) + 
-                        Number(selectedOrder.shippingBuyer || 0) + 
-                        Number(selectedOrder.shopeeSubsidy || 0) + 
-                        Number(selectedOrder.voucherShopee || 0) + 
-                        Number(selectedOrder.cashbackShopee || 0) + 
-                        Number(selectedOrder.penyesuaianSaldo || 0) + 
-                        Number(selectedOrder.codBuyer || 0) + 
-                        Number(selectedOrder.kompensasi || 0)
-                      )}</span>
-                    </div>
+                {/* INFO ROW */}
+                <div className="grid grid-cols-3 gap-4 mb-6 text-sm">
+                  <div>
+                    <p className="text-slate-500 mb-1">ID Pesanan</p>
+                    <p className="font-semibold text-slate-900 flex items-center gap-2">
+                      {selectedOrder.orderId}
+                      <button className="text-indigo-500 hover:text-indigo-700"><Search size={14} /></button>
+                    </p>
                   </div>
-                </section>
-
-                {/* --- 2. SEKSI POTONGAN --- */}
-                <section>
-                  <h4 className="text-xs font-bold text-red-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <ArrowDown size={14} /> Potongan
-                  </h4>
-                  <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm space-y-3 text-sm">
-                    <DetailRow label="Biaya Administrasi" desc="Fee marketplace Shopee." value={selectedOrder.adminFee} color="text-red-500" isMinus />
-                    <DetailRow label="Biaya Layanan" desc="Biaya tambahan layanan marketplace." value={selectedOrder.serviceFee} color="text-red-500" isMinus />
-                    <DetailRow label="Biaya Program Gratis Ongkir XTRA" desc="Kontribusi seller untuk program free ongkir." value={selectedOrder.freeOngkirXtra} color="text-red-500" isMinus />
-                    <DetailRow label="Biaya Cashback XTRA" desc="Potongan cashback promo." value={selectedOrder.cashbackXtra} color="text-red-500" isMinus />
-                    <DetailRow label="Biaya Affiliate Marketing Solution (AMS)" desc="Komisi affiliate Shopee." value={selectedOrder.ams} color="text-red-500" isMinus />
-                    <DetailRow label="Komisi Shopee Affiliate" desc="Fee creator/affiliate." value={selectedOrder.affiliate} color="text-red-500" isMinus />
-                    <DetailRow label="Pajak (PPN/PPh)" desc="Potongan pajak transaksi." value={selectedOrder.pajak} color="text-red-500" isMinus />
-                    <DetailRow label="Biaya COD" desc="Fee layanan Cash On Delivery." value={selectedOrder.biayaCod} color="text-red-500" isMinus />
-                    <DetailRow label="Voucher Ditanggung Penjual" desc="Diskon seller." value={selectedOrder.voucherSeller} color="text-orange-600" isMinus />
-                    <DetailRow label="Cashback Ditanggung Penjual" desc="Cashback promo seller." value={selectedOrder.cashbackSeller} color="text-orange-600" isMinus />
-                    <DetailRow label="Biaya Iklan Shopee Ads" desc="Potongan biaya iklan otomatis." value={selectedOrder.shopeeAds} color="text-red-500" isMinus />
-                    <DetailRow label="Penalti/Denda" desc="Potongan karena pelanggaran toko." value={selectedOrder.penalti} color="text-red-500" isMinus />
-                    <DetailRow label="Refund Pembeli" desc="Dana dikembalikan ke pembeli." value={selectedOrder.refund} color="text-red-500" isMinus />
-                    <DetailRow label="Retur Barang" desc="Potongan akibat retur." value={selectedOrder.retur} color="text-red-500" isMinus />
-                    <DetailRow label="Biaya Transfer Bank" desc="Biaya pencairan saldo." value={selectedOrder.transferBank} color="text-red-500" isMinus />
-                    <DetailRow label="Biaya Materai" desc="Potongan dokumen/transaksi tertentu." value={selectedOrder.materai} color="text-red-500" isMinus />
-                    <DetailRow label="Penyesuaian Sistem" desc="Adjustment manual dari Shopee." value={selectedOrder.penyesuaianSistem} color="text-red-500" isMinus />
-                    
-                    {/* TOTAL POTONGAN */}
-                    <div className="pt-3 mt-3 border-t-2 border-dashed border-red-200 flex justify-between items-center text-red-600 font-bold text-base">
-                      <span>Total Potongan</span>
-                      <span>-{formatRupiah(
-                        Math.abs(Number(selectedOrder.adminFee || 0)) + 
-                        Math.abs(Number(selectedOrder.serviceFee || 0)) + 
-                        Math.abs(Number(selectedOrder.freeOngkirXtra || 0)) +
-                        Math.abs(Number(selectedOrder.cashbackXtra || 0)) +
-                        Math.abs(Number(selectedOrder.ams || 0)) +
-                        Math.abs(Number(selectedOrder.affiliate || 0)) +
-                        Math.abs(Number(selectedOrder.pajak || 0)) +
-                        Math.abs(Number(selectedOrder.biayaCod || 0)) +
-                        Math.abs(Number(selectedOrder.voucherSeller || 0)) +
-                        Math.abs(Number(selectedOrder.cashbackSeller || 0)) +
-                        Math.abs(Number(selectedOrder.shopeeAds || 0)) +
-                        Math.abs(Number(selectedOrder.penalti || 0)) +
-                        Math.abs(Number(selectedOrder.refund || 0)) +
-                        Math.abs(Number(selectedOrder.retur || 0)) +
-                        Math.abs(Number(selectedOrder.transferBank || 0)) +
-                        Math.abs(Number(selectedOrder.materai || 0)) +
-                        Math.abs(Number(selectedOrder.penyesuaianSistem || 0))
-                      )}</span>
-                    </div>
+                  <div className="min-w-0">
+                    <p className="text-slate-500 mb-1">Nama Produk</p>
+                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.productName || "Tidak Diketahui"}>
+                      {selectedOrder.productName || "Tidak Diketahui"}
+                    </p>
                   </div>
-                </section>
+                  <div className="min-w-0">
+                    <p className="text-slate-500 mb-1">SKU / Variasi</p>
+                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.sku || "-"}>
+                      {selectedOrder.sku || "-"}
+                    </p>
+                  </div>
+                </div>
 
-                {/* --- 3. HASIL AKHIR --- */}
-                <div className="bg-[#EE4D2D] p-5 rounded-xl shadow-lg border border-orange-600 sticky bottom-0 z-10 mt-4">
-                  <div className="flex justify-between items-center text-white">
+                {/* HIGHLIGHT CARDS */}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-6 mb-6 shadow-sm">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-500 mb-1">Dana diselesaikan</p>
+                    <p className="text-2xl font-bold text-emerald-600">{formatRupiah(selectedOrder.net)}</p>
+                  </div>
+                  <div className="w-px h-12 bg-slate-200"></div>
+                  <div className="flex-1 flex items-center gap-3">
+                    <div className="bg-emerald-50 p-2 rounded-lg">
+                       <ArrowUp className="text-emerald-500" size={18} />
+                    </div>
                     <div>
-                      <span className="block text-sm font-medium opacity-90">Dana Diterima (Settlement)</span>
-                      <span className="block text-[10px] text-orange-200 mt-0.5">Saldo bersih yang masuk ke akun seller.</span>
+                      <p className="text-xs font-medium text-slate-500 mb-1">Total Pendapatan</p>
+                      <p className="text-base font-bold text-slate-900">{formatRupiah((selectedOrder.hargaProduk || 0) + (selectedOrder.ongkirPembeli || 0) + (selectedOrder.subsidiOngkir || 0) + (selectedOrder.voucherShopee || 0) + (selectedOrder.cashbackShopee || 0) + (selectedOrder.penyesuaianSaldo || 0) + (selectedOrder.codPembeli || 0) + (selectedOrder.kompensasi || 0))}</p>
                     </div>
-                    <span className="text-3xl font-bold tracking-tight">{formatRupiah(selectedOrder.net)}</span>
                   </div>
+                  <div className="w-px h-12 bg-slate-200"></div>
+                  <div className="flex-1 flex items-center gap-3">
+                    <div className="bg-red-50 p-2 rounded-lg">
+                       <TrendingDown className="text-red-500" size={18} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 mb-1">Total Potongan</p>
+                      <p className="text-base font-bold text-red-600">-{formatRupiah(selectedOrder.fees)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* --- MAIN CONTENT LAYOUT (FLEX COLUMNS) --- */}
+                <div className="flex flex-col md:flex-row gap-4 mb-2 items-start">
+                  
+                  {/* KOLOM KIRI */}
+                  <div className="flex flex-col gap-4 flex-1 w-full">
+                    
+                    {/* Pendapatan dari Pesanan */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-center gap-2 mb-3">
+                        <CircleDollarSign className="text-emerald-500" size={16} />
+                        <h3 className="font-bold text-slate-900 text-sm">Pendapatan dari Pesanan</h3>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <DetailRow label="Harga Produk" value={selectedOrder.hargaProduk} />
+                        <DetailRow label="Ongkir Dibayar Pembeli" value={selectedOrder.ongkirPembeli} />
+                        <DetailRow label="Subsidi Ongkir Shopee" value={selectedOrder.subsidiOngkir} />
+                        <DetailRow label="Voucher Ditanggung Shopee" value={selectedOrder.voucherShopee} />
+                        <DetailRow label="Cashback Shopee" value={selectedOrder.cashbackShopee} />
+                        <DetailRow label="Pendapatan Penjualan" value={(selectedOrder.hargaProduk || 0) + (selectedOrder.ongkirPembeli || 0) + (selectedOrder.subsidiOngkir || 0) + (selectedOrder.voucherShopee || 0) + (selectedOrder.cashbackShopee || 0) - (selectedOrder.voucherPenjual || 0)} />
+                        <DetailRow label="Dana Diterima" value={selectedOrder.net} />
+                        <DetailRow label="Penyesuaian Saldo" value={selectedOrder.penyesuaianSaldo} />
+                        <DetailRow label="Biaya COD Dibayar Pembeli" value={selectedOrder.codPembeli} />
+                        <DetailRow label="Kompensasi Shopee" value={selectedOrder.kompensasi} />
+                        
+                        <div className="border-t border-slate-100 pt-2 mt-2 flex justify-between font-bold text-slate-900 text-[13px]">
+                          <span>Total Pemasukan Shopee</span>
+                          <span className="text-emerald-600">{formatRupiah((selectedOrder.hargaProduk || 0) + (selectedOrder.ongkirPembeli || 0) + (selectedOrder.subsidiOngkir || 0) + (selectedOrder.voucherShopee || 0) + (selectedOrder.cashbackShopee || 0) + (selectedOrder.penyesuaianSaldo || 0) + (selectedOrder.codPembeli || 0) + (selectedOrder.kompensasi || 0))}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Informasi Transaksi */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Calendar className="text-indigo-500" size={16} />
+                        <h3 className="font-bold text-slate-900 text-sm">Informasi Transaksi</h3>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between text-slate-600">
+                          <span>Order Created Time</span>
+                          <span className="text-slate-900 text-right">{selectedOrder.createdDate}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-600">
+                          <span>Order Settled Time</span>
+                          <span className="text-slate-900 text-right">{selectedOrder.date}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-600">
+                          <span>Sumber Order</span>
+                          <span className="text-slate-900 text-right">Shopee</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* BOTTOM CARD: Analisis Profit Internal */}
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-center gap-2 mb-3">
+                        <BarChart3 className="text-emerald-600" size={16} />
+                        <h3 className="font-bold text-emerald-900 text-sm">Analisis Profit Internal</h3>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between text-slate-600">
+                          <span>Total HPP ({selectedOrder.qty} item)</span>
+                          <span className="text-red-500">-{formatRupiah(selectedOrder.totalHpp)}</span>
+                        </div>
+                        <div className="border-t border-emerald-200 pt-2 mt-2 flex justify-between items-center font-bold">
+                          <span className="text-[13px] text-emerald-900">Laba Bersih</span>
+                          <span className={`text-lg ${selectedOrder.labaBersih < 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatRupiah(selectedOrder.labaBersih)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* KOLOM KANAN (Rincian Potongan Lengkap) */}
+                  <div className="flex flex-col flex-1 w-full">
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm h-full">
+                      <div className="flex items-center gap-2 mb-3">
+                        <TrendingDown className="text-red-500" size={16} />
+                        <h3 className="font-bold text-slate-900 text-sm">Rincian Potongan</h3>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <DetailRow label="Biaya Administrasi" value={selectedOrder.admin} isMinus />
+                        <DetailRow label="Biaya Layanan" value={selectedOrder.layanan} isMinus />
+                        <DetailRow label="Biaya Program Gratis Ongkir XTRA" value={selectedOrder.ongkirXtra} isMinus />
+                        <DetailRow label="Biaya Cashback XTRA" value={selectedOrder.cashbackXtra} isMinus />
+                        <DetailRow label="Biaya Affiliate Marketing Solution (AMS)" value={selectedOrder.ams} isMinus />
+                        <DetailRow label="Komisi Shopee Affiliate" value={selectedOrder.komisiAffiliate} isMinus />
+                        <DetailRow label="Pajak (PPN/PPh)" value={selectedOrder.pajak} isMinus />
+                        <DetailRow label="Biaya COD" value={selectedOrder.biayaCod} isMinus />
+                        <DetailRow label="Voucher Ditanggung Penjual" value={selectedOrder.voucherPenjual} isMinus />
+                        <DetailRow label="Cashback Ditanggung Penjual" value={selectedOrder.cashbackPenjual} isMinus />
+                        <DetailRow label="Biaya Iklan Shopee Ads" value={selectedOrder.shopeeAds} isMinus />
+                        <DetailRow label="Penalti/Denda" value={selectedOrder.penalti} isMinus />
+                        <DetailRow label="Refund Pembeli" value={selectedOrder.refund} isMinus />
+                        <DetailRow label="Retur Barang" value={selectedOrder.retur} isMinus />
+                        <DetailRow label="Biaya Transfer Bank" value={selectedOrder.transfer} isMinus />
+                        <DetailRow label="Biaya Materai" value={selectedOrder.materai} isMinus />
+                        <DetailRow label="Penyesuaian Sistem" value={selectedOrder.penyesuaianSistem} isMinus />
+                        
+                        <div className="border-t border-slate-100 pt-2 mt-2 flex justify-between font-bold text-slate-900 text-[13px]">
+                          <span>Total Semua Potongan</span>
+                          <span className="text-red-600">-{formatRupiah(selectedOrder.fees)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
 
               </div>
@@ -500,23 +664,24 @@ const formattedData = parsedData
   );
 }
 
-// Komponen Pembantu agar ringkas dan HANYA memunculkan yang ada nilainya (> 0)
-function DetailRow({ label, desc, value, isMinus = false, isPlus = false, color = "text-slate-900", bold = false }: any) {
-  if (!value || Math.abs(Number(value)) === 0) return null;
-  
-  const formatRupiah = (angka: any) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Math.abs(Number(angka)));
-  };
-
+// Komponen Pembantu Summary Card
+function SummaryCard({ label, value, color = "text-slate-900" }: { label: string, value: string | number, color?: string }) {
   return (
-    <div className="flex justify-between items-center border-b border-dashed border-slate-100 pb-2 last:border-0 last:pb-0">
-      <div>
-        <span className={`block font-medium ${bold ? 'text-slate-900 font-bold' : 'text-slate-700'}`}>{label}</span>
-        <span className="block text-[10px] text-slate-400">{desc}</span>
-      </div>
-      <span className={`font-semibold ${color} ${bold ? 'font-bold text-lg' : ''}`}>
-        {isMinus ? '-' : isPlus ? '+' : ''}{formatRupiah(value)}
-      </span>
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center hover:border-slate-300 transition-colors">
+      <p className="text-[11px] font-semibold text-slate-500 mb-1">{label}</p>
+      <h3 className={`text-lg font-bold ${color}`}>{value}</h3>
+    </div>
+  );
+}
+
+// Komponen Pembantu Baris Rincian Modal
+function DetailRow({ label, value, isMinus = false }: any) {
+  if (!value || Math.abs(Number(value)) === 0) return null;
+  const formatRupiah = (angka: any) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Math.abs(Number(angka)));
+  return (
+    <div className="flex justify-between text-[13px] font-medium text-slate-600">
+      <span>{label}</span>
+      <span className={isMinus ? "text-red-500" : "text-slate-900"}>{isMinus ? "-" : ""}{formatRupiah(value)}</span>
     </div>
   );
 }

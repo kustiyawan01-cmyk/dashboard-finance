@@ -21,8 +21,8 @@ export default function ShopeePage() {
   const [globalSearch, setGlobalSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua Status");
   
-  // STATE UNTUK SORTING TABEL
-  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+  // STATE UNTUK SORTING TABEL (Default: Tanggal Terbaru)
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'date', direction: 'desc' });
   
   // STATE UNTUK FILTER TANGGAL (DARI - SAMPAI)
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -33,8 +33,7 @@ export default function ShopeePage() {
   const [isExportDatePickerOpen, setIsExportDatePickerOpen] = useState(false);
   const [exportDateRange, setExportDateRange] = useState({ start: '', end: '' });
 
-  const fetchOrders = async () => {
-    setIsFetching(true);
+const fetchOrders = async () => {
     try {
       const res = await fetch('/api/shopee');
       if (res.ok) {
@@ -76,18 +75,11 @@ export default function ShopeePage() {
       let matchesDate = true;
       if (dateRange.start && dateRange.end && order.date && order.date !== "-") {
         const datePart = order.date.split(" ")[0]; // Memotong jam, hanya ambil "DD/MM/YYYY"
-              let formattedOrderDate = "";
-              if (datePart.includes("/")) {
-                const [day, month, year] = datePart.split("/");
-                formattedOrderDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-              } else if (datePart.includes("-")) {
-                const parts = datePart.split("-");
-                if (parts[0].length === 4) formattedOrderDate = datePart; // YYYY-MM-DD
-                else formattedOrderDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-              }
-              if (formattedOrderDate) {
-                matchesDate = formattedOrderDate >= dateRange.start && formattedOrderDate <= dateRange.end;
-              }
+        if (datePart && datePart.includes("/")) {
+          const [day, month, year] = datePart.split("/");
+          const formattedOrderDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          matchesDate = formattedOrderDate >= dateRange.start && formattedOrderDate <= dateRange.end;
+        }
       }
 
 return matchesSearch && matchesStatus && matchesDate;
@@ -178,7 +170,7 @@ return matchesSearch && matchesStatus && matchesDate;
     setIsExportDatePickerOpen(false); // Tutup popup setelah berhasil
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
@@ -187,31 +179,66 @@ return matchesSearch && matchesStatus && matchesDate;
       try {
         const workbook = XLSX.read(event.target?.result, { type: "binary" });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const parsedData = XLSX.utils.sheet_to_json(sheet) as any[];
-        const formattedData = parsedData
-          .filter((row) => row["No. Pesanan"] && row["No. Pesanan"] !== "") // Ambil baris yang memiliki No Pesanan
-          .map((row) => {
-            let rawAmount = row["Total Pembayaran"] || row["Total Harga Produk"] || "0";
-            // Hilangkan titik (.) karena di CSV Shopee itu adalah pemisah ribuan, bukan desimal
-            let cleanAmount = Number(String(rawAmount).replace(/\./g, "").replace(/[^0-9]/g, ""));
+        
+        // 1. Cari baris mana yang merupakan header asli (mengabaikan judul aneh di baris atas)
+        const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+        const headerRowIndex = rawData.findIndex(row => 
+          Array.isArray(row) && row.some(cell => String(cell || "").trim() === "No. Pesanan")
+        );
+
+        if (headerRowIndex === -1) {
+          alert("Gagal: Kolom 'No. Pesanan' tidak ditemukan di file ini!");
+          setIsUploading(false);
+          return;
+        }
+
+        // 2. Baca ulang sheet secara otomatis mulai dari baris header tersebut (menggunakan fitur range)
+        const jsonData = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
+
+        // 3. Bersihkan nama kolom dari spasi tersembunyi agar tidak meleset
+        const cleanData = jsonData.map(row => {
+          const newRow: any = {};
+          for (let key in row) {
+            newRow[key.trim()] = row[key];
+          }
+          return newRow;
+        });
+
+        // 4. Format data dengan mulus (tanpa logika indexOf yang rawan error)
+        const formattedData = cleanData
+          .filter(row => row["No. Pesanan"] !== undefined && String(row["No. Pesanan"]).trim() !== "")
+          .map(row => {
+            let rawAmount = row["Total Pembayaran"];
+            // Hapus semua titik dan karakter non-angka agar tidak dibaca sebagai desimal
+            let cleanAmount = Number(String(rawAmount || "0").replace(/[^0-9-]/g, ""));
             return {
-              date: row["Waktu Pesanan Dibuat"] || "-",
-              orderId: String(row["No. Pesanan"] || "-"),
-              productName: String(row["Nama Produk"] || "Produk Tidak Diketahui"),
-              sku: String(row["Nomor Referensi SKU"] || "-"),
-              quantity: Number(row["Jumlah"] || 1),
+              date: String(row["Waktu Pesanan Dibuat"] || "-"),
+              order_id: String(row["No. Pesanan"] || "-"),
+              product_name: String(row["Nama Produk"] || "Produk Tidak Diketahui"),
+              sku: String(row["Nomor Referensi SKU"] || "-").trim(),
+              quantity: Number(row["Jumlah"] || 0),
               amount: isNaN(cleanAmount) ? 0 : cleanAmount,
               status: String(row["Status Pesanan"] || "Unknown")
             };
           });
+
+        const safeData = Array.isArray(formattedData) ? formattedData : [];
+
+        if (safeData.length === 0) {
+          alert("Data 0 / Format Excel tidak sesuai dengan standar laporan Shopee.");
+          setIsUploading(false);
+          return;
+        }
+
         const res = await fetch('/api/shopee', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orders: formattedData })
+          body: JSON.stringify({ orders: safeData })
         });
         if (res.ok) fetchOrders();
       } catch (error) {
-        alert("Gagal membaca file.");
+        console.error(error);
+        alert("Gagal membaca file. Pastikan formatnya benar.");
       } finally {
         setIsUploading(false);
         e.target.value = ""; 
@@ -228,22 +255,25 @@ return matchesSearch && matchesStatus && matchesDate;
         let aValue = a[sortConfig.key];
         let bValue = b[sortConfig.key];
 
-        // Penanganan khusus untuk tanggal (Support berbagai format Shopee & TikTok)
+        // Penanganan khusus untuk tanggal ("DD/MM/YYYY HH:MM:SS" atau format Serial Excel)
         if (sortConfig.key === 'date') {
           const parseDate = (dateStr: string) => {
-            if (!dateStr || dateStr === "-") return new Date(0).getTime();
-            const [datePart, timePart] = dateStr.split(" ");
-            let year, month, day;
-            if (datePart && datePart.includes("/")) {
-              [day, month, year] = datePart.split("/");
-            } else if (datePart && datePart.includes("-")) {
-              const parts = datePart.split("-");
-              if (parts[0].length === 4) { year = parts[0]; month = parts[1]; day = parts[2]; }
-              else { day = parts[0]; month = parts[1]; year = parts[2]; }
-            } else {
-              return new Date(0).getTime();
+            if (!dateStr || dateStr === "-") return 0;
+            
+            // Jika formatnya angka serial dari Excel (contoh: "45321")
+            if (!isNaN(Number(dateStr)) && Number(dateStr) > 20000) {
+              return Math.round((Number(dateStr) - 25569) * 86400 * 1000);
             }
-            return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart || "00:00:00"}`).getTime();
+
+            // Jika formatnya Teks (DD/MM/YYYY)
+            const [datePart, timePart] = String(dateStr).split(" ");
+            if (datePart && datePart.includes("/")) {
+              const [day, month, year] = datePart.split("/");
+              if (year && year.length === 4) {
+                return new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timePart || "00:00:00"}`).getTime();
+              }
+            }
+            return 0;
           };
           aValue = parseDate(aValue);
           bValue = parseDate(bValue);
@@ -267,8 +297,8 @@ return matchesSearch && matchesStatus && matchesDate;
 
   const getSortIcon = (key: string) => {
     if (!sortConfig || sortConfig.key !== key) return <ArrowUpDown size={14} className="ml-1 opacity-40 group-hover:opacity-100 transition-opacity" />;
-    if (sortConfig.direction === 'asc') return <ArrowUp size={14} className="ml-1 text-indigo-600" />;
-    return <ArrowDown size={14} className="ml-1 text-indigo-600" />;
+    if (sortConfig.direction === 'asc') return <ArrowUp size={14} className="ml-1 text-[#EE4D2D]" />;
+    return <ArrowDown size={14} className="ml-1 text-[#EE4D2D]" />;
   };
 
   if (!isMounted) return null;
@@ -295,6 +325,28 @@ return matchesSearch && matchesStatus && matchesDate;
     return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
   };
 
+  // Fungsi untuk mengubah angka Excel (46058.xxx) menjadi Tanggal Normal
+  const formatTanggalExcel = (excelDate: any) => {
+    if (!excelDate || excelDate === "-") return "-";
+    
+    // Jika formatnya sudah berupa teks biasa (bukan angka serial)
+    if (isNaN(Number(excelDate))) {
+      return excelDate; 
+    }
+
+    // Jika formatnya angka seri Excel (misal: 46058.9600...)
+    // 25569 adalah selisih hari antara 1 Jan 1900 (Excel) dan 1 Jan 1970 (Javascript)
+    const date = new Date(Math.round((Number(excelDate) - 25569) * 86400 * 1000));
+    
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // Helper untuk warna badge status agar lebih premium
   const getStatusStyle = (status: string) => {
     const s = status.toUpperCase();
@@ -307,12 +359,12 @@ return matchesSearch && matchesStatus && matchesDate;
   return (
     <>
       {/* MAIN CONTENT */}
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 p-8 overflow-y-auto bg-slate-50/50">
         <header className="mb-8 flex justify-between items-end">
           <div>
             <h2 className="text-2xl font-semibold text-slate-900 tracking-tight">Data Penjualan Shopee</h2>
             <div className="flex items-center gap-2 mt-1.5">
-              <CheckCircle2 size={14} className="text-emerald-500" />
+              <CheckCircle2 size={14} className="text-[#EE4D2D]" />
               <span className="text-slate-500 font-medium text-sm">Tersinkronisasi dengan Cloud</span>
             </div>
           </div>
@@ -326,9 +378,9 @@ return matchesSearch && matchesStatus && matchesDate;
                   setTempDateRange(dateRange);
                   setIsDatePickerOpen(!isDatePickerOpen);
                 }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700"
+                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-orange-50 transition-colors text-sm font-medium text-slate-700"
               >
-                <Calendar size={16} className="text-indigo-500" />
+                <Calendar size={16} className="text-[#EE4D2D]" />
                 {dateRange.start && dateRange.end 
                   ? `${dateRange.start} - ${dateRange.end}` 
                   : "Pilih Rentang Tanggal"}
@@ -339,12 +391,12 @@ return matchesSearch && matchesStatus && matchesDate;
                   <div className="flex flex-row h-[280px]">
                     {/* Sidebar Preset */}
                     <div className="w-40 border-r border-slate-100 bg-slate-50/50 p-2 flex flex-col gap-1 overflow-y-auto">
-                      <button onClick={() => handlePresetDate(0)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Hari ini</button>
-                      <button onClick={() => handlePresetDate(1)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Kemarin</button>
-                      <button onClick={() => handlePresetDate(7)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">7 hari terakhir</button>
-                      <button onClick={() => handlePresetDate(30)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">30 hari terakhir</button>
-                      <button onClick={() => handlePresetDate(90)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">3 bulan terakhir</button>
-                      <button onClick={() => setTempDateRange({start: '', end: ''})} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Semua waktu</button>
+                      <button onClick={() => handlePresetDate(0)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-orange-50 hover:text-[#EE4D2D] rounded-md transition-colors">Hari ini</button>
+                      <button onClick={() => handlePresetDate(1)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-orange-50 hover:text-[#EE4D2D] rounded-md transition-colors">Kemarin</button>
+                      <button onClick={() => handlePresetDate(7)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-orange-50 hover:text-[#EE4D2D] rounded-md transition-colors">7 hari terakhir</button>
+                      <button onClick={() => handlePresetDate(30)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-orange-50 hover:text-[#EE4D2D] rounded-md transition-colors">30 hari terakhir</button>
+                      <button onClick={() => handlePresetDate(90)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-orange-50 hover:text-[#EE4D2D] rounded-md transition-colors">3 bulan terakhir</button>
+                      <button onClick={() => setTempDateRange({start: '', end: ''})} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-orange-50 hover:text-[#EE4D2D] rounded-md transition-colors">Semua waktu</button>
                     </div>
                     
                     {/* Input Area */}
@@ -357,7 +409,7 @@ return matchesSearch && matchesStatus && matchesDate;
                             type="date" 
                             value={tempDateRange.start}
                             onChange={(e) => setTempDateRange(prev => ({...prev, start: e.target.value}))}
-                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-[#EE4D2D] focus:ring-1 focus:ring-[#EE4D2D]"
                           />
                         </div>
                         <div className="flex-1">
@@ -366,7 +418,7 @@ return matchesSearch && matchesStatus && matchesDate;
                             type="date" 
                             value={tempDateRange.end}
                             onChange={(e) => setTempDateRange(prev => ({...prev, end: e.target.value}))}
-                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-[#EE4D2D] focus:ring-1 focus:ring-[#EE4D2D]"
                           />
                         </div>
                       </div>
@@ -392,7 +444,7 @@ return matchesSearch && matchesStatus && matchesDate;
                               setIsDatePickerOpen(false);
                               setCurrentPage(1);
                             }}
-                            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+                            className="px-4 py-2 text-sm font-medium text-white bg-[#EE4D2D] hover:bg-[#d73211] rounded-lg shadow-sm transition-colors"
                           >
                             Apply
                           </button>
@@ -405,7 +457,7 @@ return matchesSearch && matchesStatus && matchesDate;
             </div>
 
             {/* Tombol Upload */}
-            <label className="bg-slate-900 text-white px-4 py-2.5 rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm font-medium shadow-sm flex items-center gap-2">
+            <label className="bg-[#EE4D2D] text-white px-4 py-2.5 rounded-lg cursor-pointer hover:bg-[#d73211] transition-colors text-sm font-medium shadow-sm flex items-center gap-2">
               <Upload size={16} />
               {isUploading ? "Memproses..." : "Upload Laporan"}
               <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
@@ -416,7 +468,7 @@ return matchesSearch && matchesStatus && matchesDate;
         {/* SUMMARY CARDS */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
           {/* Semua Pesanan */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#EE4D2D]/30 transition-colors">
             <div className="flex justify-between items-start mb-2">
               <p className="text-[11px] font-medium text-slate-500">Semua Pesanan</p>
               <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
@@ -430,7 +482,7 @@ return matchesSearch && matchesStatus && matchesDate;
           </div>
 
           {/* Menunggu Pembayaran */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#EE4D2D]/30 transition-colors">
             <div className="flex justify-between items-start mb-2">
               <p className="text-[11px] font-medium text-slate-500 leading-tight">Menunggu Pembayaran</p>
               <div className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center shrink-0">
@@ -444,7 +496,7 @@ return matchesSearch && matchesStatus && matchesDate;
           </div>
 
           {/* Dikemas */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#EE4D2D]/30 transition-colors">
             <div className="flex justify-between items-start mb-2">
               <p className="text-[11px] font-medium text-slate-500">Dikemas</p>
               <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center shrink-0">
@@ -458,7 +510,7 @@ return matchesSearch && matchesStatus && matchesDate;
           </div>
 
           {/* Dikirim */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#EE4D2D]/30 transition-colors">
             <div className="flex justify-between items-start mb-2">
               <p className="text-[11px] font-medium text-slate-500">Dikirim</p>
               <div className="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center shrink-0">
@@ -472,7 +524,7 @@ return matchesSearch && matchesStatus && matchesDate;
           </div>
 
           {/* Selesai */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#EE4D2D]/30 transition-colors">
             <div className="flex justify-between items-start mb-2">
               <p className="text-[11px] font-medium text-slate-500">Selesai</p>
               <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
@@ -486,7 +538,7 @@ return matchesSearch && matchesStatus && matchesDate;
           </div>
 
           {/* Dibatalkan */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#EE4D2D]/30 transition-colors">
             <div className="flex justify-between items-start mb-2">
               <p className="text-[11px] font-medium text-slate-500">Dibatalkan</p>
               <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0">
@@ -511,14 +563,14 @@ return matchesSearch && matchesStatus && matchesDate;
               placeholder="Cari nomor pesanan atau nama produk..." 
               value={globalSearch}
               onChange={(e) => { setGlobalSearch(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-10 pr-4 py-2 text-sm text-slate-900 bg-slate-50 border border-transparent rounded-lg focus:bg-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-slate-400"
+              className="w-full pl-10 pr-4 py-2 text-sm text-slate-900 bg-slate-50 border border-transparent rounded-lg focus:bg-white focus:outline-none focus:border-[#EE4D2D] focus:ring-1 focus:ring-[#EE4D2D] transition-all placeholder:text-slate-400"
             />
           </div>
           <div className="relative min-w-[180px]">
             <select 
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-              className="w-full px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg appearance-none cursor-pointer focus:outline-none focus:border-indigo-500 hover:bg-slate-50 transition-colors shadow-sm"
+              className="w-full px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg appearance-none cursor-pointer focus:outline-none focus:border-[#EE4D2D] hover:bg-slate-50 transition-colors shadow-sm"
             >
               <option value="Semua Status">Semua Status</option>
               {uniqueStatuses.map((status, idx) => (
@@ -536,7 +588,7 @@ return matchesSearch && matchesStatus && matchesDate;
         <div className="relative ml-auto md:ml-0">
           <button 
             onClick={() => setIsExportDatePickerOpen(!isExportDatePickerOpen)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#EE4D2D] bg-orange-50 border border-[#EE4D2D]/30 rounded-lg hover:bg-orange-100 transition-colors shadow-sm"
           >
             <Download size={16} /> Export Data
           </button>
@@ -551,7 +603,7 @@ return matchesSearch && matchesStatus && matchesDate;
                     type="date" 
                     value={exportDateRange.start}
                     onChange={(e) => setExportDateRange(prev => ({...prev, start: e.target.value}))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-[#EE4D2D] focus:ring-1 focus:ring-[#EE4D2D]"
                   />
                 </div>
                 <div>
@@ -560,7 +612,7 @@ return matchesSearch && matchesStatus && matchesDate;
                     type="date" 
                     value={exportDateRange.end}
                     onChange={(e) => setExportDateRange(prev => ({...prev, end: e.target.value}))}
-                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-[#EE4D2D] focus:ring-1 focus:ring-[#EE4D2D]"
                   />
                 </div>
               </div>
@@ -573,7 +625,7 @@ return matchesSearch && matchesStatus && matchesDate;
                 </button>
                 <button 
                   onClick={executeExport}
-                  className="px-3 py-2 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
+                  className="px-3 py-2 text-xs font-medium text-white bg-[#EE4D2D] hover:bg-[#d73211] rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
                 >
                   <Download size={14} /> Download
                 </button>
@@ -584,9 +636,9 @@ return matchesSearch && matchesStatus && matchesDate;
       </div>
 
         {/* DATA TABLE */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          {/* Ubah overflow dan tambahkan batas tinggi (max-h) agar tabel punya scroll sendiri */}
-          <div className="overflow-auto max-h-[65vh]">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          {/* Gunakan calc(100vh - ruang atas/bawah) agar tabel pas dan tidak memicu scrollbar browser (kanan) */}
+          <div className="overflow-auto max-h-[calc(100vh-460px)] min-h-[350px]">
             <table className="w-full text-left border-collapse relative">
               {/* Tambahkan sticky, top-0, z-10, dan efek blur transparan */}
               <thead className="bg-slate-50/95 backdrop-blur-sm sticky top-0 z-10 outline outline-1 outline-slate-200 shadow-sm">
@@ -598,6 +650,7 @@ return matchesSearch && matchesStatus && matchesDate;
                     <div className="flex items-center">Tanggal {getSortIcon('date')}</div>
                   </th>
                   <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Order ID</th>
+                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">SKU</th>
                   <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Nama Produk</th>
                   <th 
                     className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group select-none"
@@ -617,13 +670,14 @@ return matchesSearch && matchesStatus && matchesDate;
               <tbody className="divide-y divide-slate-100">
                 {currentOrders.length > 0 ? (
                   currentOrders.map((order, index) => (
-                    <tr key={index} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{order.date}</td>
-                      <td className="px-6 py-4 text-xs font-mono text-slate-500">{order.orderId}</td>
+                    <tr key={index} className="hover:bg-orange-50/30 transition-colors group">
+                      <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{formatTanggalExcel(order.date)}</td>
+                      <td className="px-6 py-4 text-sm font-mono text-slate-500">{order.orderId}</td>
+                      <td className="px-6 py-4 text-sm font-mono text-[#EE4D2D] font-semibold">{order.sku}</td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-900 max-w-[280px] truncate">{order.productName}</td>
                       <td className="px-6 py-4 text-sm text-slate-700 text-center">{order.quantity}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-900 text-right">
-                        {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(order.amount)}
+                      <td className={`px-6 py-4 text-sm font-semibold text-right ${order.amount < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                        {order.amount < 0 ? "-Rp. " : "Rp. "}{new Intl.NumberFormat('id-ID').format(Math.abs(order.amount))}
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className={`px-2.5 py-1 inline-flex rounded-md text-[11px] font-semibold tracking-wide border ${getStatusStyle(order.status)}`}>
@@ -647,7 +701,7 @@ return matchesSearch && matchesStatus && matchesDate;
           </div>
 
           {/* PAGINATION (Sesuai Desain Mockup) */}
-          <div className="flex items-center justify-between px-6 py-4 bg-white border-t border-slate-200">
+          <div className="sticky bottom-0 z-30 flex items-center justify-between px-6 py-4 bg-white border-t border-slate-200 shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
             {/* Kiri: Info Data */}
             <p className="text-sm text-slate-600">
               Menampilkan {filteredOrders.length === 0 ? 0 : indexOfFirstItem + 1} - {Math.min(indexOfLastItem, filteredOrders.length)} dari {new Intl.NumberFormat('id-ID').format(filteredOrders.length)} data
@@ -676,7 +730,7 @@ return matchesSearch && matchesStatus && matchesDate;
                 <button 
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1 text-sm font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40 transition-colors"
+                  className="px-3 py-1 text-sm font-medium text-slate-500 hover:text-[#EE4D2D] disabled:opacity-40 transition-colors"
                 >
                   Previous
                 </button>
@@ -689,10 +743,10 @@ return matchesSearch && matchesStatus && matchesDate;
                       disabled={page === '...'}
                       className={`min-w-[28px] h-[28px] flex items-center justify-center text-sm rounded transition-all ${
                         currentPage === page 
-                          ? 'bg-[#000000] text-white font-medium shadow-sm' 
+                          ? 'bg-[#EE4D2D] text-white font-medium shadow-sm' 
                           : page === '...' 
                           ? 'text-slate-400 cursor-default' 
-                          : 'text-slate-600 hover:bg-slate-100'
+                          : 'text-slate-600 hover:bg-orange-50 hover:text-[#EE4D2D]'
                       }`}
                     >
                       {page}
@@ -703,7 +757,7 @@ return matchesSearch && matchesStatus && matchesDate;
                 <button 
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1 text-sm font-medium text-slate-500 hover:text-slate-800 disabled:opacity-40 transition-colors"
+                  className="px-3 py-1 text-sm font-medium text-slate-500 hover:text-[#EE4D2D] disabled:opacity-40 transition-colors"
                 >
                   Next
                 </button>

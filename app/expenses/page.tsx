@@ -8,7 +8,8 @@ import {
   Download, RefreshCcw, Settings, Edit, Trash2,
   WalletCards, Wallet, CalendarRange, ListOrdered, LayoutGrid,
   Building2, PenTool, Wifi, Car, Coffee, Printer, Monitor, Droplet,
-  Banknote, QrCode, Smartphone, Receipt, X, Package, Megaphone, Users2
+  Banknote, QrCode, Smartphone, Receipt, X, Package, Megaphone, Users2,
+  Briefcase, Wrench, Truck, FileBox
 } from "lucide-react";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
@@ -22,6 +23,19 @@ export default function ExpensesPage() {
   const [selectedMethod, setSelectedMethod] = useState("Semua Metode");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  // STATE FILTER TANGGAL
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [tempDateRange, setTempDateRange] = useState({ start: '', end: '' });
+
+  const handlePresetDate = (days: number) => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - days);
+    const formatDate = (d: Date) => d.toISOString().split('T')[0];
+    setTempDateRange({ start: formatDate(start), end: formatDate(end) });
+  };
 
   // State Modal & Form
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -38,7 +52,8 @@ export default function ExpensesPage() {
   const [formData, setFormData] = useState(defaultFormData);
 
   const [metrics, setMetrics] = useState({
-    total: 0, bulanIni: 0, rataHarian: 0, totalTransaksi: 0, totalKategori: 0, trendData: [] as number[]
+    total: 0, bulanIni: 0, rataHarian: 0, totalTransaksi: 0, totalKategori: 0, trendData: [] as number[],
+    internal: { operasional: 0, marketing: 0, maintenance: 0, karyawan: 0, bahan: 0, gaji: 0, perlengkapan: 0 }
   });
 
   const fetchExpenses = async () => {
@@ -46,10 +61,19 @@ export default function ExpensesPage() {
     try {
       const res = await fetch('/api/expenses');
       if (res.ok) {
-        const data = await res.json();
+        const rawData = await res.json();
+        
+        // Filter Data berdasarkan rentang tanggal
+        const data = rawData.filter((item: any) => {
+          if (!dateRange.start || !dateRange.end) return true;
+          const datePart = new Date(item.tanggal).toISOString().split('T')[0];
+          return datePart >= dateRange.start && datePart <= dateRange.end;
+        });
+
         setExpenses(data);
 
         let tTotal = 0, tBulanIni = 0;
+        let op=0, mkt=0, mtc=0, krw=0, bhn=0, gj=0, plg=0;
         const categories = new Set();
         const dailySums: Record<string, number> = {};
         const currentMonth = new Date().getMonth();
@@ -59,6 +83,17 @@ export default function ExpensesPage() {
           const amount = Number(item.jumlah) || 0;
           tTotal += amount;
           categories.add(item.kategori);
+
+          // Pisahkan ke 7 Kategori Internal
+          const cat = String(item.kategori || "").toLowerCase();
+          if(cat.includes("operasional")) op+=amount;
+          else if(cat.includes("marketing") || cat.includes("iklan")) mkt+=amount;
+          else if(cat.includes("maintenance") || cat.includes("perbaikan")) mtc+=amount;
+          else if(cat.includes("karyawan") && !cat.includes("gaji")) krw+=amount;
+          else if(cat.includes("bahan") || cat.includes("produksi")) bhn+=amount;
+          else if(cat.includes("gaji")) gj+=amount;
+          else if(cat.includes("perlengkapan") || cat.includes("atk")) plg+=amount;
+          else op+=amount; // Fallback masuk ke operasional
 
           const dateStr = new Date(item.tanggal).toISOString().split('T')[0];
           dailySums[dateStr] = (dailySums[dateStr] || 0) + amount;
@@ -72,14 +107,15 @@ export default function ExpensesPage() {
         
         setMetrics({
           total: tTotal, bulanIni: tBulanIni, rataHarian: sortedDates.length > 0 ? tTotal / sortedDates.length : 0,
-          totalTransaksi: data.length, totalKategori: categories.size, trendData: trend.length > 0 ? trend : [0, 0, 0, 0, 0]
+          totalTransaksi: data.length, totalKategori: categories.size, trendData: trend.length > 0 ? trend : [0, 0, 0, 0, 0],
+          internal: { operasional: op, marketing: mkt, maintenance: mtc, karyawan: krw, bahan: bhn, gaji: gj, perlengkapan: plg }
         });
       }
     } catch (error) { console.error(error); } 
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchExpenses(); }, []);
+  useEffect(() => { fetchExpenses(); }, [dateRange]);
 
   const filteredExpenses = useMemo(() => {
     return expenses.filter((exp) => {
@@ -201,10 +237,109 @@ export default function ExpensesPage() {
     <main className="flex-1 p-8 bg-[#F8FAFC] min-h-screen font-sans text-slate-800 relative">
       
       {/* HEADER */}
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex justify-between items-end mb-8">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Pengeluaran Kantor</h1>
           <p className="text-[15px] text-slate-500 mt-1 font-medium">Kelola dan pantau semua pengeluaran operasional kantor Anda.</p>
+        </div>
+        
+        {/* DATE PICKER CUSTOM (Pop-up) */}
+        <div className="relative z-50">
+          <button 
+            onClick={() => {
+              setTempDateRange(dateRange);
+              setIsDatePickerOpen(!isDatePickerOpen);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-colors text-[14px] font-medium text-slate-700"
+          >
+            <Calendar size={18} className="text-indigo-500" />
+            {dateRange.start && dateRange.end 
+              ? `${dateRange.start} - ${dateRange.end}` 
+              : "Semua Waktu"}
+          </button>
+
+          {isDatePickerOpen && (
+            <div className="absolute right-0 top-full mt-2 w-[500px] bg-white border border-slate-200 rounded-xl shadow-xl flex flex-col overflow-hidden">
+              <div className="flex flex-row h-[280px]">
+                {/* Sidebar Preset */}
+                <div className="w-40 border-r border-slate-100 bg-slate-50/50 p-2 flex flex-col gap-1 overflow-y-auto">
+                  <button onClick={() => handlePresetDate(0)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Hari ini</button>
+                  <button onClick={() => handlePresetDate(1)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Kemarin</button>
+                  <button onClick={() => handlePresetDate(7)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">7 hari terakhir</button>
+                  <button onClick={() => handlePresetDate(30)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">30 hari terakhir</button>
+                  <button onClick={() => handlePresetDate(90)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">3 bulan terakhir</button>
+                  <button onClick={() => setTempDateRange({start: '', end: ''})} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Semua waktu</button>
+                </div>
+                
+                {/* Input Area */}
+                <div className="flex-1 p-5 flex flex-col">
+                  <h4 className="font-medium text-slate-900 mb-4">Atur Tanggal Kustom</h4>
+                  <div className="flex items-center gap-4 mb-auto">
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1.5">Mulai Tanggal</label>
+                      <input 
+                        type="date" 
+                        value={tempDateRange.start}
+                        onChange={(e) => setTempDateRange(prev => ({...prev, start: e.target.value}))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium text-slate-500 mb-1.5">Sampai Tanggal</label>
+                      <input 
+                        type="date" 
+                        value={tempDateRange.end}
+                        onChange={(e) => setTempDateRange(prev => ({...prev, end: e.target.value}))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Aksi Bawah */}
+                  <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                    <button 
+                      onClick={() => { setDateRange({start: '', end: ''}); setIsDatePickerOpen(false); setCurrentPage(1); }}
+                      className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-md uppercase tracking-wider transition-colors"
+                    >
+                      Reset
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => setIsDatePickerOpen(false)}
+                        className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setDateRange(tempDateRange);
+                          setIsDatePickerOpen(false);
+                          setCurrentPage(1);
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- PENGELUARAN INTERNAL BISNIS --- */}
+      <div className="mb-8">
+        <h3 className="text-[13px] font-bold text-slate-500 uppercase tracking-wider mb-4">Pengeluaran Internal Bisnis</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+          <MiniMetricCard label="Operasional" value={formatRp(metrics.internal.operasional)} icon={<Briefcase />} color="text-amber-500 bg-amber-50" />
+          <MiniMetricCard label="Marketing" value={formatRp(metrics.internal.marketing)} icon={<Megaphone />} color="text-amber-500 bg-amber-50" />
+          <MiniMetricCard label="Maintenance" value={formatRp(metrics.internal.maintenance)} icon={<Wrench />} color="text-amber-500 bg-amber-50" />
+          <MiniMetricCard label="Karyawan" value={formatRp(metrics.internal.karyawan)} icon={<Users2 />} color="text-amber-500 bg-amber-50" />
+          <MiniMetricCard label="Beli Bahan" value={formatRp(metrics.internal.bahan)} icon={<Truck />} color="text-amber-500 bg-amber-50" />
+          <MiniMetricCard label="Biaya Gaji" value={formatRp(metrics.internal.gaji)} icon={<Wallet />} color="text-amber-500 bg-amber-50" />
+          <MiniMetricCard label="Perlengkapan" value={formatRp(metrics.internal.perlengkapan)} icon={<FileBox />} color="text-amber-500 bg-amber-50" />
         </div>
       </div>
 
@@ -391,6 +526,20 @@ export default function ExpensesPage() {
   );
 }
 
+function MiniMetricCard({ label, value, icon, color }: any) {
+  return (
+    <div className={`p-4 rounded-xl border border-slate-200 shadow-sm bg-white flex items-center gap-3 hover:-translate-y-1 transition-transform duration-300`}>
+      <div className={`p-2.5 rounded-xl ${color}`}>
+        {React.cloneElement(icon, { size: 18 })}
+      </div>
+      <div>
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
+        <p className="text-[14px] font-black text-slate-900 leading-none tracking-tight">{value}</p>
+      </div>
+    </div>
+  );
+}
+
 function TopCard({ title, value, icon, color, trend }: any) {
   const colorMap: Record<string, { bg: string, text: string, hex: string }> = {
     red: { bg: 'bg-red-50', text: 'text-red-500', hex: '#EF4444' },
@@ -403,18 +552,18 @@ function TopCard({ title, value, icon, color, trend }: any) {
   const sparklineOptions = { chart: { type: 'line', sparkline: { enabled: true } }, stroke: { curve: 'smooth', width: 2 }, colors: [theme.hex], tooltip: { fixed: { enabled: false }, x: { show: false }, marker: { show: false } } } as ApexCharts.ApexOptions;
 
   return (
-    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${theme.bg} ${theme.text}`}>{React.cloneElement(icon, { size: 20 })}</div>
-        <div><span className="text-[13px] font-bold text-slate-800 block">{title}</span></div>
+    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${theme.bg} ${theme.text}`}>{React.cloneElement(icon, { size: 16 })}</div>
+        <div><span className="text-[12px] font-bold text-slate-600 block">{title}</span></div>
       </div>
       <div>
-        <h3 className="text-[24px] font-black text-slate-900 tracking-tight mb-2 leading-none">{value}</h3>
-        <div className="flex items-center gap-2 mb-3">
-          <span className={`text-[12px] font-bold ${color === 'red' ? 'text-red-500' : 'text-emerald-500'} flex items-center`}>{color === 'red' ? '↓ 8.21%' : '↑ 4.35%'}</span>
-          <span className="text-[11px] text-slate-400 font-medium">Dari periode sebelumnya</span>
+        <h3 className="text-[20px] font-black text-slate-900 tracking-tight mb-2 leading-none">{value}</h3>
+        <div className="flex items-center gap-1.5 mb-2">
+          <span className={`text-[11px] font-bold ${color === 'red' ? 'text-red-500' : 'text-emerald-500'} flex items-center`}>{color === 'red' ? '↓ 8.21%' : '↑ 4.35%'}</span>
+          <span className="text-[10px] text-slate-400 font-medium">Dari periode sebelumnya</span>
         </div>
-        <div className="h-10 w-full"><ReactApexChart options={sparklineOptions} series={[{ data: trend }]} type="line" height={40} /></div>
+        <div className="h-8 w-full"><ReactApexChart options={sparklineOptions} series={[{ data: trend }]} type="line" height={32} /></div>
       </div>
     </div>
   );
