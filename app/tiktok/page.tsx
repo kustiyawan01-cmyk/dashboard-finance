@@ -316,8 +316,8 @@ return matchesSearch && matchesStatus && matchesDate;
   return (
     <>
       {/* MAIN CONTENT */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-8 flex justify-between items-end">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-w-[100vw]">
+        <header className="mb-6 md:mb-8 flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-slate-900 tracking-tight">Data Penjualan TikTok</h2>
             <div className="flex items-center gap-2 mt-1.5">
@@ -512,10 +512,10 @@ return matchesSearch && matchesStatus && matchesDate;
         </div>
 
         {/* FILTER BAR PREMIUM */}
-        <div className="mb-4 flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+        <div className="mb-4 flex flex-col md:flex-row flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm w-full">
           
           {/* 1. Global Search Input */}
-          <div className="flex-1 min-w-[300px] relative">
+          <div className="flex-1 w-full md:min-w-[300px] relative">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
               type="text" 
@@ -540,11 +540,11 @@ return matchesSearch && matchesStatus && matchesDate;
             <ChevronDownIcon />
           </div>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
+        <button className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm">
           <Filter size={16} className="text-slate-500"/> Filter Lainnya
         </button>
         {/* EXPORT BUTTON & POPUP */}
-        <div className="relative ml-auto md:ml-0">
+        <div className="relative w-full md:w-auto md:ml-auto">
           <button 
             onClick={() => setIsExportDatePickerOpen(!isExportDatePickerOpen)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors shadow-sm"
@@ -595,10 +595,10 @@ return matchesSearch && matchesStatus && matchesDate;
       </div>
 
         {/* DATA TABLE */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col w-full">
           {/* Gunakan calc(100vh - ruang atas/bawah) agar tabel pas dan tidak memicu scrollbar browser (kanan) */}
-          <div className="overflow-auto max-h-[calc(100vh-460px)] min-h-[350px]">
-            <table className="w-full text-left border-collapse relative">
+          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-460px)] min-h-[350px] w-full">
+            <table className="w-full min-w-[900px] text-left border-collapse relative">
               {/* Tambahkan sticky, top-0, z-10, dan efek blur transparan */}
               <thead className="bg-slate-50/95 backdrop-blur-sm sticky top-0 z-10 outline outline-1 outline-slate-200 shadow-sm">
                 <tr>
@@ -660,14 +660,14 @@ return matchesSearch && matchesStatus && matchesDate;
           </div>
 
           {/* PAGINATION (Sesuai Desain Mockup) */}
-          <div className="sticky bottom-0 z-30 flex items-center justify-between px-6 py-4 bg-white border-t border-slate-200 shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
+          <div className="sticky bottom-0 z-30 flex flex-col md:flex-row items-center justify-between gap-4 px-6 py-4 bg-white border-t border-slate-200 shadow-[0_-4px_10px_rgba(0,0,0,0.03)] w-full">
             {/* Kiri: Info Data */}
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 text-center md:text-left">
               Menampilkan {filteredOrders.length === 0 ? 0 : indexOfFirstItem + 1} - {Math.min(indexOfLastItem, filteredOrders.length)} dari {new Intl.NumberFormat('id-ID').format(filteredOrders.length)} data
             </p>
 
             {/* Kanan: Dropdown dan Pagination */}
-            <div className="flex items-center gap-6">
+            <div className="flex flex-col sm:flex-row items-center gap-4 md:gap-6 w-full md:w-auto justify-center md:justify-end">
               {/* Dropdown Limit */}
               <div className="relative flex items-center border border-slate-200 rounded-md bg-white hover:bg-slate-50 transition-colors">
                 <select 

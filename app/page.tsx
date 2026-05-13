@@ -379,8 +379,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* --- ROW 1: TOP 5 METRICS --- */}
-      {/* Responsive Grid: Bertahap dari 1 -> 2 -> 3 -> 5 kolom */}
+{/* --- ROW 1: TOP 5 METRICS --- */}
+      {/* Di HP 1 kolom -> Tablet 2 kolom -> PC Kecil 3 Kolom -> Monitor Besar 5 Kolom */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-5 mb-8">
         <TopCard title="Total Omzet Shopee" value={formatRp(stats.omzetShopee)} icon={<ShoppingBag />} iconBg="bg-orange-100" iconColor="text-[#EE4D2D]" data={stats.trendData.map(d=>d.shopee)} stroke="#EE4D2D" />
         <TopCard title="Total Omzet TikTok" value={formatRp(stats.omzetTikTok)} icon={<ShoppingBag />} iconBg="bg-slate-200" iconColor="text-slate-900" data={stats.trendData.map(d=>d.tiktok)} stroke="#000000" />
@@ -390,7 +390,8 @@ export default function DashboardPage() {
       </div>
 
       {/* --- HOLY GRAIL RESPONSIVE LAYOUT (MAIN & RIGHT ASIDE) --- */}
-      <div className="flex flex-col xl:flex-row gap-6 mb-8">
+      {/* Di HP: Atas-Bawah (flex-col). Di Monitor Besar: Kiri-Kanan (xl:flex-row) */}
+      <div className="flex flex-col xl:flex-row gap-6 mb-8 w-full">
         
         {/* MAIN CONTENT (Kiri / Tengah - Mengambil sisa ruang) */}
         <div className="flex-1 flex flex-col gap-6 min-w-0">

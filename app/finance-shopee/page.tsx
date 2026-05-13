@@ -421,8 +421,10 @@ export default function FinanceShopeePage() {
 
         {/* TABEL DATA */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-0">
-          <div className="overflow-auto flex-1 relative">
-            <table className="w-full text-left border-collapse">
+{/* --- AREA SCROLL ISI TABEL --- */}
+          {/* Tambahan w-full dan perbaikan agar bisa digeser horizontal di HP */}
+          <div className="overflow-x-auto overflow-y-auto flex-1 relative w-full">
+            <table className="w-full min-w-[800px] text-left border-collapse">
               <thead className="bg-slate-50 sticky top-0 z-10 outline outline-1 outline-slate-200">
                 <tr>
                   <th onClick={()=>requestSort('orderId')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase cursor-pointer hover:bg-slate-100">Order ID</th>
