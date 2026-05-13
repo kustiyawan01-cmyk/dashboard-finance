@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@/app/context/AuthContext";
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { 
@@ -11,6 +12,7 @@ import {
 import Link from "next/link";
 
 export default function FinanceTikTokPage() {
+  const { user } = useAuth();
 const [finances, setFinances] = useState<any[]>([]);
 const [isUploading, setIsUploading] = useState(false);
 const [isSaving, setIsSaving] = useState(false); // State untuk loading simpan DB
@@ -593,17 +595,21 @@ const formatRupiah = (angka: any) => {
           </div>
           
                 <div className="flex gap-3">
-            <button 
-              onClick={handleSaveToDatabase} 
-              disabled={isSaving || finances.length === 0}
-              className="bg-emerald-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-bold transition-all shadow-sm shadow-emerald-200"
-            >
-              <Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan ke Database"}
-            </button>
-            <label className="bg-slate-900 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-slate-800 flex items-center gap-2 text-sm font-bold shadow-sm">
-              <Upload size={16} /> {isUploading ? "Memproses..." : "Upload Excel / CSV"}
-              <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
-            </label>
+            {user?.role === 'admin' && (
+              <>
+                <button 
+                  onClick={handleSaveToDatabase} 
+                  disabled={isSaving || finances.length === 0}
+                  className="bg-emerald-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-bold transition-all shadow-sm shadow-emerald-200"
+                >
+                  <Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan ke Database"}
+                </button>
+                <label className="bg-slate-900 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-slate-800 flex items-center gap-2 text-sm font-bold shadow-sm">
+                  <Upload size={16} /> {isUploading ? "Memproses..." : "Upload Excel / CSV"}
+                  <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
+                </label>
+              </>
+            )}
           </div>
         </header>
 

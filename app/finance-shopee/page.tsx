@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@/app/context/AuthContext";
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { 
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 
 export default function FinanceShopeePage() {
+  const { user } = useAuth();
   const [finances, setFinances] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -354,13 +356,17 @@ export default function FinanceShopeePage() {
           </div>
           
           <div className="flex gap-3">
-            <button onClick={handleSaveToDatabase} disabled={isSaving || finances.length === 0} className="bg-[#EE4D2D] text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-[#d73211] disabled:opacity-50 flex items-center gap-2 text-sm font-bold transition-all shadow-sm">
-              <Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan ke Database"}
-            </button>
-            <label className="bg-slate-900 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-slate-800 flex items-center gap-2 text-sm font-bold shadow-sm">
-              <Upload size={16} /> {isUploading ? "Memproses..." : "Upload Excel Laporan"}
-              <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
-            </label>
+            {user?.role === 'admin' && (
+              <>
+                <button onClick={handleSaveToDatabase} disabled={isSaving || finances.length === 0} className="bg-[#EE4D2D] text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-[#d73211] disabled:opacity-50 flex items-center gap-2 text-sm font-bold transition-all shadow-sm">
+                  <Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan ke Database"}
+                </button>
+                <label className="bg-slate-900 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-slate-800 flex items-center gap-2 text-sm font-bold shadow-sm">
+                  <Upload size={16} /> {isUploading ? "Memproses..." : "Upload Excel Laporan"}
+                  <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
+                </label>
+              </>
+            )}
           </div>
         </header>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@/app/context/AuthContext";
 import { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { 
@@ -10,6 +11,7 @@ import {
 import Link from "next/link";
 
 export default function TikTokPage() {
+  const { user } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -412,11 +414,13 @@ return matchesSearch && matchesStatus && matchesDate;
             </div>
 
             {/* Tombol Upload */}
-            <label className="bg-slate-900 text-white px-4 py-2.5 rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm font-medium shadow-sm flex items-center gap-2">
-              <Upload size={16} />
-              {isUploading ? "Memproses..." : "Upload Laporan"}
-              <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
-            </label>
+            {user?.role === 'admin' && (
+              <label className="bg-slate-900 text-white px-4 py-2.5 rounded-lg cursor-pointer hover:bg-slate-800 transition-colors text-sm font-medium shadow-sm flex items-center gap-2">
+                <Upload size={16} />
+                {isUploading ? "Memproses..." : "Upload Laporan"}
+                <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
+              </label>
+            )}
           </div>
         </header>
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/app/context/AuthContext";
 import { 
   LayoutDashboard, 
   WalletCards, 
@@ -19,6 +20,7 @@ import {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { user, logout } = useAuth(); // Mengambil data user yang sedang aktif
 
   // Jika sedang di halaman login, sembunyikan sidebar
   if (pathname === '/login') return null;
@@ -61,9 +63,10 @@ export default function Sidebar() {
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
-      window.location.href = '/login';
+      logout(); // Menggunakan fungsi logout dari context agar localStorage juga terhapus
     } catch (error) {
       console.error("Gagal logout:", error);
+      logout(); // Fallback jika fetch gagal
     }
   };
 
@@ -142,12 +145,19 @@ export default function Sidebar() {
       <div className="p-4 border-t border-slate-200 bg-slate-50/50">
         <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm flex items-center justify-between group hover:border-slate-300 transition-colors">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-slate-800 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-sm shrink-0">
-              AD
+            <div className="w-9 h-9 bg-slate-800 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-sm shrink-0 uppercase">
+              {/* Mengambil 2 huruf pertama dari username */}
+              {user?.username ? user.username.substring(0, 2) : "US"}
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-[13px] font-bold text-slate-800 truncate">Administrator</span>
-              <span className="text-[11px] font-medium text-slate-400 truncate">Online</span>
+              <span className="text-[13px] font-bold text-slate-800 truncate capitalize">
+                {/* Menampilkan username asli (misal: "user" atau "admin") */}
+                {user?.username || "User"}
+              </span>
+              <span className="text-[11px] font-medium text-slate-400 truncate">
+                {/* Keterangan tambahan berdasarkan role */}
+                {user?.role === 'admin' ? 'Administrator' : 'Staff Online'}
+              </span>
             </div>
           </div>
           
