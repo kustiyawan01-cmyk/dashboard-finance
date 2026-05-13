@@ -367,7 +367,8 @@ export default function DashboardPage() {
       {/* --- RINGKASAN BUKU KAS & OPERASIONAL INTERNAL --- */}
       <div className="mb-10">
         <h3 className="text-[14px] font-bold text-slate-500 uppercase tracking-wider mb-4">Pengeluaran Internal Bisnis</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+        {/* Responsive Grid: Bertahap dari 2 -> 3 -> 4 -> 7 kolom */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-3 md:gap-4">
           <MiniMetricCard label="Operasional" value={formatRp(stats.internalCosts.operasional)} icon={<Briefcase />} color="text-amber-500 bg-amber-50" />
           <MiniMetricCard label="Marketing" value={formatRp(stats.internalCosts.marketing)} icon={<Megaphone />} color="text-amber-500 bg-amber-50" />
           <MiniMetricCard label="Maintenance" value={formatRp(stats.internalCosts.maintenance)} icon={<Wrench />} color="text-amber-500 bg-amber-50" />
@@ -379,7 +380,8 @@ export default function DashboardPage() {
       </div>
 
       {/* --- ROW 1: TOP 5 METRICS --- */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-5 mb-8">
+      {/* Responsive Grid: Bertahap dari 1 -> 2 -> 3 -> 5 kolom */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-5 mb-8">
         <TopCard title="Total Omzet Shopee" value={formatRp(stats.omzetShopee)} icon={<ShoppingBag />} iconBg="bg-orange-100" iconColor="text-[#EE4D2D]" data={stats.trendData.map(d=>d.shopee)} stroke="#EE4D2D" />
         <TopCard title="Total Omzet TikTok" value={formatRp(stats.omzetTikTok)} icon={<ShoppingBag />} iconBg="bg-slate-200" iconColor="text-slate-900" data={stats.trendData.map(d=>d.tiktok)} stroke="#000000" />
         <TopCard title="Total Pengeluaran (Semua)" value={formatRp(totalPengeluaranAll)} icon={<TrendingDown />} iconBg="bg-red-100" iconColor="text-red-600" data={stats.trendData.map(d=>d.total)} stroke="#EF4444" />
@@ -387,117 +389,102 @@ export default function DashboardPage() {
         <TopCard title="Total Order Gabungan" value={totalOrder.toLocaleString()} icon={<Package />} iconBg="bg-blue-100" iconColor="text-blue-600" data={stats.trendData.map(d=>d.total)} stroke="#3B82F6" />
       </div>
 
-      {/* --- ROW 2: OMZET, TREND, PENGELUARAN --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
+      {/* --- HOLY GRAIL RESPONSIVE LAYOUT (MAIN & RIGHT ASIDE) --- */}
+      <div className="flex flex-col xl:flex-row gap-6 mb-8">
         
-        <div className="lg:col-span-3 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-          <h3 className="text-[16px] font-bold text-slate-900 mb-4">Omzet per Marketplace</h3>
-          <div className="flex-1 relative flex items-center justify-center -mt-4">
-            <ReactApexChart options={chartMarketplace.options} series={chartMarketplace.series} type="donut" height={240} />
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
-              <span className="text-[12px] text-slate-500 font-medium">Total Omzet</span>
-              <span className="text-[16px] font-black text-slate-800">{formatRp(totalOmzet)}</span>
-            </div>
-          </div>
-          <div className="mt-4 space-y-4">
-            <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#EE4D2D]" /><span className="text-[14px] font-medium text-slate-600">Shopee</span></div><div className="text-right"><p className="text-[14px] font-bold text-slate-800">{formatRp(stats.omzetShopee)}</p></div></div>
-            <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#000000]" /><span className="text-[14px] font-medium text-slate-600">TikTok Shop</span></div><div className="text-right"><p className="text-[14px] font-bold text-slate-800">{formatRp(stats.omzetTikTok)}</p></div></div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-[16px] font-bold text-slate-900">Tren Omzet Berjalan</h3>
-            <div className="flex items-center gap-4 text-[12px] font-bold">
-              <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#EE4D2D]" /> Shopee</span>
-              <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#000000]" /> TikTok Shop</span>
-              <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#8B5CF6]" /> Total</span>
-            </div>
-          </div>
-          <div className="flex-1 w-full -ml-3">
-            <ReactApexChart options={chartTrend.options} series={chartTrend.series} type="area" height={280} />
-          </div>
-        </div>
-
-        <div className="lg:col-span-3 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-          <h3 className="text-[16px] font-bold text-slate-900 mb-6">Rincian Potongan MP</h3>
-          <div className="space-y-6 flex-1 mt-2">
-            <ProgressRow label="Biaya Admin & Komisi" value={stats.adminKomisi} total={totalPengeluaranMP} color="bg-orange-500" icon={<Receipt size={14}/>} />
-            <ProgressRow label="Iklan & Promosi" value={stats.iklanPromosi} total={totalPengeluaranMP} color="bg-blue-500" icon={<TrendingUp size={14}/>} />
-            <ProgressRow label="Ongkir & Voucher" value={stats.ongkirVoucher} total={totalPengeluaranMP} color="bg-slate-800" icon={<Package size={14}/>} />
-            <ProgressRow label="Pajak & Biaya Lainnya" value={stats.lainnya + stats.pajak} total={totalPengeluaranMP} color="bg-emerald-500" icon={<Wallet size={14}/>} />
-          </div>
-          <div className="mt-8 pt-5 border-t border-slate-200 flex justify-between items-center">
-            <span className="text-[14px] font-bold text-slate-500">Total Potongan MP</span>
-            <span className="text-[16px] font-black text-red-600">-{formatRp(totalPengeluaranMP)}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* --- ROW 3: PERFORMA MP, PROFIT MARGIN, TOP PRODUK --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
-        
-        <div className="lg:col-span-3 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-[16px] font-bold text-slate-900 mb-6">Performa Marketplace</h3>
-          <div className="mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 bg-orange-100 text-[#EE4D2D] rounded-md flex items-center justify-center"><ShoppingBag size={16}/></div>
-              <span className="text-[15px] font-bold text-slate-800">Shopee</span>
-            </div>
-            <div className="space-y-3 text-[13px]">
-              <div className="flex justify-between"><span className="text-slate-500 font-medium">Omzet</span><span className="font-bold text-slate-800">{formatRp(stats.omzetShopee)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500 font-medium">Total Order</span><span className="font-bold text-slate-800">{stats.orderShopee}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500 font-medium">Laba MP</span><span className="font-bold text-emerald-600">{formatRp(stats.labaShopee)}</span></div>
-            </div>
-          </div>
-          <div className="pt-6 border-t border-slate-200">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 bg-slate-200 text-slate-900 rounded-md flex items-center justify-center"><ShoppingBag size={16}/></div>
-              <span className="text-[15px] font-bold text-slate-800">TikTok Shop</span>
-            </div>
-            <div className="space-y-3 text-[13px]">
-              <div className="flex justify-between"><span className="text-slate-500 font-medium">Omzet</span><span className="font-bold text-slate-800">{formatRp(stats.omzetTikTok)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500 font-medium">Total Order</span><span className="font-bold text-slate-800">{stats.orderTikTok}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500 font-medium">Laba MP</span><span className="font-bold text-emerald-600">{formatRp(stats.labaTikTok)}</span></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-5 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-[16px] font-bold text-slate-900">Profit Bersih Harian & Margin</h3>
-            <div className="flex items-center gap-4 text-[12px] font-bold">
-              <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded bg-[#10B981]" /> Profit</span>
-              <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#8B5CF6]" /> Margin (%)</span>
-            </div>
-          </div>
-          <div className="flex-1 w-full -ml-3">
-            <ReactApexChart options={chartProfitMargin.options} series={chartProfitMargin.series} type="line" height={280} />
-          </div>
-        </div>
-
-        <div className="lg:col-span-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-          <h3 className="text-[16px] font-bold text-slate-900 mb-5">Transaksi Laba Tertinggi (Terbaru)</h3>
-          <div className="flex justify-between text-[11px] font-black text-slate-400 uppercase tracking-wider border-b pb-3 mb-4">
-            <span className="w-1/2">Order ID</span>
-            <span className="w-1/4 text-right">Omzet</span>
-            <span className="w-1/4 text-right">Profit</span>
-          </div>
-          <div className="space-y-5 flex-1 overflow-y-auto">
-            {stats.topOrders.map((item, idx) => (
-              <div key={idx} className="flex justify-between items-center text-[13px]">
-                <div className="w-1/2 flex items-center gap-3 pr-2">
-                  <div className={`p-2 rounded-lg ${item.marketplace === 'Shopee' ? 'bg-orange-100 text-[#EE4D2D]' : 'bg-slate-100 text-slate-800'}`}>
-                    <Package size={16} />
-                  </div>
-                  <span className="font-bold text-slate-700 truncate" title={item.name}>{item.name}</span>
+        {/* MAIN CONTENT (Kiri / Tengah - Mengambil sisa ruang) */}
+        <div className="flex-1 flex flex-col gap-6 min-w-0">
+          
+          {/* Baris Atas Main: Donut Chart & Area Chart */}
+          <div className="flex flex-col lg:flex-row gap-6">
+            <div className="w-full lg:w-1/3 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+              <h3 className="text-[16px] font-bold text-slate-900 mb-4">Omzet per Marketplace</h3>
+              <div className="flex-1 relative flex items-center justify-center -mt-4">
+                <ReactApexChart options={chartMarketplace.options} series={chartMarketplace.series} type="donut" height={240} />
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
+                  <span className="text-[12px] text-slate-500 font-medium">Total Omzet</span>
+                  <span className="text-[16px] font-black text-slate-800">{formatRp(totalOmzet)}</span>
                 </div>
-                <span className="w-1/4 text-right font-medium text-slate-600">{formatRp(item.omzet)}</span>
-                <span className="w-1/4 text-right font-black text-emerald-600">{formatRp(item.profit)}</span>
               </div>
-            ))}
+              <div className="mt-4 space-y-4">
+                <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#EE4D2D]" /><span className="text-[14px] font-medium text-slate-600">Shopee</span></div><div className="text-right"><p className="text-[14px] font-bold text-slate-800">{formatRp(stats.omzetShopee)}</p></div></div>
+                <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#000000]" /><span className="text-[14px] font-medium text-slate-600">TikTok Shop</span></div><div className="text-right"><p className="text-[14px] font-bold text-slate-800">{formatRp(stats.omzetTikTok)}</p></div></div>
+              </div>
+            </div>
+
+            <div className="flex-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-[16px] font-bold text-slate-900">Tren Omzet Berjalan</h3>
+                <div className="flex items-center gap-4 text-[12px] font-bold">
+                  <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#EE4D2D]" /> Shopee</span>
+                  <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#000000]" /> TikTok Shop</span>
+                  <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#8B5CF6]" /> Total</span>
+                </div>
+              </div>
+              <div className="flex-1 w-full -ml-3">
+                <ReactApexChart options={chartTrend.options} series={chartTrend.series} type="area" height={280} />
+              </div>
+            </div>
           </div>
+
+          {/* Baris Bawah Main: Line Chart Profit */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-[16px] font-bold text-slate-900">Profit Bersih Harian & Margin</h3>
+              <div className="flex items-center gap-4 text-[12px] font-bold">
+                <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded bg-[#10B981]" /> Profit</span>
+                <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#8B5CF6]" /> Margin (%)</span>
+              </div>
+            </div>
+            <div className="w-full -ml-3">
+              <ReactApexChart options={chartProfitMargin.options} series={chartProfitMargin.series} type="line" height={280} />
+            </div>
+          </div>
+
         </div>
+
+        {/* RIGHT ASIDE (Bilah Kanan - Ukuran Fix) */}
+        <aside className="w-full xl:w-[350px] 2xl:w-[400px] flex flex-col gap-6 shrink-0">
+          
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <h3 className="text-[16px] font-bold text-slate-900 mb-6">Rincian Potongan MP</h3>
+            <div className="space-y-6 flex-1 mt-2">
+              <ProgressRow label="Biaya Admin & Komisi" value={stats.adminKomisi} total={totalPengeluaranMP} color="bg-orange-500" icon={<Receipt size={14}/>} />
+              <ProgressRow label="Iklan & Promosi" value={stats.iklanPromosi} total={totalPengeluaranMP} color="bg-blue-500" icon={<TrendingUp size={14}/>} />
+              <ProgressRow label="Ongkir & Voucher" value={stats.ongkirVoucher} total={totalPengeluaranMP} color="bg-slate-800" icon={<Package size={14}/>} />
+              <ProgressRow label="Pajak & Biaya Lainnya" value={stats.lainnya + stats.pajak} total={totalPengeluaranMP} color="bg-emerald-500" icon={<Wallet size={14}/>} />
+            </div>
+            <div className="mt-8 pt-5 border-t border-slate-200 flex justify-between items-center">
+              <span className="text-[14px] font-bold text-slate-500">Total Potongan MP</span>
+              <span className="text-[16px] font-black text-red-600">-{formatRp(totalPengeluaranMP)}</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+            <h3 className="text-[16px] font-bold text-slate-900 mb-5">Transaksi Laba Tertinggi</h3>
+            <div className="flex justify-between text-[11px] font-black text-slate-400 uppercase tracking-wider border-b pb-3 mb-4">
+              <span className="w-1/2">Order ID</span>
+              <span className="w-1/4 text-right">Omzet</span>
+              <span className="w-1/4 text-right">Profit</span>
+            </div>
+            <div className="space-y-5 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
+              {stats.topOrders.map((item, idx) => (
+                <div key={idx} className="flex justify-between items-center text-[13px]">
+                  <div className="w-1/2 flex items-center gap-3 pr-2">
+                    <div className={`p-2 rounded-lg shrink-0 ${item.marketplace === 'Shopee' ? 'bg-orange-100 text-[#EE4D2D]' : 'bg-slate-100 text-slate-800'}`}>
+                      <Package size={16} />
+                    </div>
+                    <span className="font-bold text-slate-700 truncate" title={item.name}>{item.name}</span>
+                  </div>
+                  <span className="w-1/4 text-right font-medium text-slate-600">{formatRp(item.omzet)}</span>
+                  <span className="w-1/4 text-right font-black text-emerald-600">{formatRp(item.profit)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </aside>
+
       </div>
     </main>
   );
@@ -509,13 +496,13 @@ export default function DashboardPage() {
 
 function MiniMetricCard({ label, value, icon, color }: any) {
   return (
-    <div className={`p-4 rounded-2xl border border-slate-200 shadow-sm bg-white flex items-center gap-3 hover:-translate-y-1 transition-transform duration-300`}>
-      <div className={`p-2.5 rounded-xl ${color}`}>
+    <div className={`p-4 rounded-2xl border border-slate-200 shadow-sm bg-white flex items-center gap-3 hover:-translate-y-1 transition-transform duration-300 min-w-0`}>
+      <div className={`p-2.5 rounded-xl shrink-0 ${color}`}>
         {React.cloneElement(icon, { size: 18 })}
       </div>
-      <div>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
-        <p className="text-[15px] font-black text-slate-900 leading-none tracking-tight">{value}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 truncate" title={label}>{label}</p>
+        <p className="text-[15px] font-black text-slate-900 leading-none tracking-tight truncate" title={value}>{value}</p>
       </div>
     </div>
   );
@@ -530,15 +517,19 @@ function TopCard({ title, value, icon, iconBg, iconColor, data, stroke, isHighli
   } as ApexCharts.ApexOptions;
 
   return (
-    <div className={`p-4 rounded-xl border ${isHighlight ? 'bg-emerald-600 border-emerald-700 text-white shadow-md' : 'bg-white border-slate-200 text-slate-900 shadow-sm'} flex flex-col justify-between hover:shadow-md transition-shadow`}>
-      <div className="flex items-center gap-2.5 mb-3">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isHighlight ? 'bg-white/20 text-white' : `${iconBg} ${iconColor}`}`}>
+    <div className={`p-4 rounded-xl border ${isHighlight ? 'bg-emerald-600 border-emerald-700 text-white shadow-md' : 'bg-white border-slate-200 text-slate-900 shadow-sm'} flex flex-col justify-between hover:shadow-md transition-shadow min-w-0`}>
+      <div className="flex items-center gap-2.5 mb-3 min-w-0">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isHighlight ? 'bg-white/20 text-white' : `${iconBg} ${iconColor}`}`}>
           {React.cloneElement(icon, { size: 16 })}
         </div>
-        <span className={`text-[12px] font-bold tracking-tight ${isHighlight ? 'text-emerald-100' : 'text-slate-500'}`}>{title}</span>
+        <span className={`text-[12px] font-bold tracking-tight truncate flex-1 ${isHighlight ? 'text-emerald-100' : 'text-slate-500'}`} title={title}>
+          {title}
+        </span>
       </div>
-      <div>
-        <h3 className={`text-[20px] font-black tracking-tight mb-1.5 leading-none ${isHighlight ? 'text-white' : 'text-slate-900'}`}>{value}</h3>
+      <div className="min-w-0">
+        <h3 className={`text-[20px] font-black tracking-tight mb-1.5 leading-none truncate ${isHighlight ? 'text-white' : 'text-slate-900'}`} title={value}>
+          {value}
+        </h3>
         <div className="h-8 w-full opacity-80">
           <ReactApexChart options={sparklineOptions} series={[{ data: data }]} type="line" height={32} />
         </div>
