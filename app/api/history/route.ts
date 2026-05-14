@@ -26,3 +26,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ success: false }, { status: 400 });
+    
+    const sql = neon(process.env.DATABASE_URL!);
+    await sql`DELETE FROM history_kalkulator WHERE id = ${id}`;
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ success: false }, { status: 500 });
+  }
+}

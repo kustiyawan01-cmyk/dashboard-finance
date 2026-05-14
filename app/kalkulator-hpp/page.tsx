@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { 
   Calculator, Package, Store, Save, RefreshCcw, DollarSign, 
-  ClipboardList, TrendingUp, Percent, Tag, Activity, Truck, Users, Target
+  ClipboardList, TrendingUp, Percent, Tag, Activity, Truck, Users, Target, Eye, Trash2
 } from "lucide-react";
 
 export default function KalkulatorHPPPage() {
@@ -30,6 +31,7 @@ export default function KalkulatorHPPPage() {
   // STATE HISTORY
   const [history, setHistory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedDetail, setSelectedDetail] = useState<any>(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -44,7 +46,10 @@ export default function KalkulatorHPPPage() {
             namaProduk: item.nama_produk,
             totalHPP: parseFloat(item.total_hpp),
             hargaJualAmanEtalase: parseFloat(item.harga_jual_etalase),
-            targetProfit: parseFloat(item.target_profit_persen)
+            targetProfit: parseFloat(item.target_profit_persen),
+            diskon: 0,
+            affiliate: 0,
+            ongkir: 0
           }));
           setHistory(formattedHistory);
         }
@@ -146,7 +151,10 @@ export default function KalkulatorHPPPage() {
           namaProduk,
           totalHPP,
           hargaJualAmanEtalase,
-          targetProfit: numTargetProfit
+          targetProfit: numTargetProfit,
+          diskon: numDiskon,
+          affiliate: numAffiliatePersen,
+          ongkir: numOngkirPenjual
         };
         setHistory([newRecord, ...history]);
         // Jangan reset semua agar bisa membandingkan produk lain dengan skema yang sama
@@ -156,6 +164,18 @@ export default function KalkulatorHPPPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleDeleteHistory = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Yakin ingin menghapus draft harga ini?")) return;
+    try {
+      const response = await fetch(`/api/history?id=${id}`, { method: 'DELETE' });
+      const result = await response.json();
+      if (result.success) {
+        setHistory(history.filter(item => item.id !== id));
+      }
+    } catch (error) {}
   };
 
   return (
@@ -370,14 +390,24 @@ export default function KalkulatorHPPPage() {
             <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-white/10">
               {history.length > 0 ? (
                 history.map((item) => (
-                  <div key={item.id} className="p-3 bg-black/20 border border-white/5 rounded-lg flex justify-between items-center">
+                  <div onClick={() => setSelectedDetail(item)} key={item.id} className="p-3 bg-black/20 border border-white/5 rounded-lg flex justify-between items-center hover:bg-white/5 transition-all cursor-pointer group">
                     <div>
-                      <h4 className="font-bold text-white text-xs">{item.namaProduk || "Produk"}</h4>
+                      <h4 className="font-bold text-white text-xs group-hover:text-cyan-400 transition-colors">{item.namaProduk || "Produk"}</h4>
                       <p className="text-[10px] text-slate-500">HPP: {formatRupiah(item.totalHPP)} | Target: {item.targetProfit}%</p>
                     </div>
-                    <div className="text-right">
-                      <span className="block text-xs font-black text-indigo-400">{formatRupiah(item.hargaJualAmanEtalase)}</span>
-                      <span className="text-[9px] text-slate-500 uppercase bg-white/5 px-1.5 py-0.5 rounded">{item.platform}</span>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="block text-xs font-black text-indigo-400">{formatRupiah(item.hargaJualAmanEtalase)}</span>
+                        <span className="text-[9px] text-slate-500 uppercase bg-white/5 px-1.5 py-0.5 rounded">{item.platform}</span>
+                      </div>
+                      <div className="flex gap-2.5 text-slate-500">
+                        <button className="hover:text-cyan-400 transition-colors">
+                          <Eye size={16} />
+                        </button>
+                        <button onClick={(e) => handleDeleteHistory(item.id, e)} className="hover:text-rose-500 transition-colors">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -391,6 +421,85 @@ export default function KalkulatorHPPPage() {
 
         </div>
       </div>
+
+      {selectedDetail && (() => {
+        const detailPlatformPercent = getAdminFeePercent(selectedDetail.platform);
+        const detailDiskon = selectedDetail.diskon || 0;
+        const detailAffiliate = selectedDetail.affiliate || 0;
+        const detailOngkir = selectedDetail.ongkir || 0;
+        const detailTotalPotonganPersen = detailPlatformPercent + detailAffiliate;
+        const detailHargaAktual = selectedDetail.hargaJualAmanEtalase - detailDiskon;
+        const detailPotonganRp = (detailHargaAktual * detailTotalPotonganPersen) / 100;
+        const detailNetProfitRp = detailHargaAktual - detailPotonganRp - detailOngkir - selectedDetail.totalHPP;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm transition-opacity">
+            <div className="bg-[#0B0F19] border border-white/10 p-6 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] w-full max-w-md relative overflow-hidden animate-in fade-in zoom-in duration-200">
+              
+              <button onClick={() => setSelectedDetail(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white bg-white/5 p-1.5 rounded-lg transition-colors">
+                ✕
+              </button>
+              
+              <div className="flex items-center gap-3 mb-4 border-b border-white/10 pb-5">
+                <div className="p-2.5 bg-indigo-500/20 rounded-xl">
+                  <Target size={24} className="text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-xl tracking-tight">{selectedDetail.namaProduk}</h3>
+                  <p className="text-xs text-slate-400 mt-1">Platform: <span className="text-indigo-300 font-bold px-2 py-0.5 bg-indigo-500/10 rounded ml-1">{selectedDetail.platform}</span></p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="text-center relative overflow-hidden py-3">
+                  <p className="text-xs text-indigo-300 uppercase tracking-widest mb-1 font-bold">Harga Etalase Rekomendasi</p>
+                  <h2 className="text-4xl font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+                    {formatRupiah(selectedDetail.hargaJualAmanEtalase)}
+                  </h2>
+                </div>
+
+                <div className="pt-2 border-t border-white/5">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 text-center">Pembuktian Rumus</p>
+                  <div className="space-y-2.5 text-[12px] font-medium p-4 bg-black/30 rounded-xl border border-white/5">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Harga Etalase (Coret)</span>
+                      <span className="text-white">{formatRupiah(selectedDetail.hargaJualAmanEtalase)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Voucher dari Penjual</span>
+                      <span className="text-rose-400">- {formatRupiah(detailDiskon)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300 border-t border-white/10 pt-2.5">
+                      <span>Harga Dibayar Pembeli</span>
+                      <span className="text-white">{formatRupiah(detailHargaAktual)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Potongan Platform & Aff ({detailTotalPotonganPersen}%)</span>
+                      <span className="text-rose-400">- {formatRupiah(detailPotonganRp)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Beban Ongkir Penjual</span>
+                      <span className="text-rose-400">- {formatRupiah(detailOngkir)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400 border-b border-white/5 pb-2.5">
+                      <span>Modal HPP Dasar</span>
+                      <span className="text-rose-400">- {formatRupiah(selectedDetail.totalHPP)}</span>
+                    </div>
+                    <div className="flex justify-between pt-1">
+                      <span className="text-indigo-300 font-bold">Net Profit Tepat {selectedDetail.targetProfit}%</span>
+                      <span className="text-emerald-400 font-black">{formatRupiah(detailNetProfitRp)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button onClick={() => setSelectedDetail(null)} className="w-full mt-5 py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl font-bold text-sm transition-all shadow-lg">
+                Tutup Detail
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </main>
   );
 }
