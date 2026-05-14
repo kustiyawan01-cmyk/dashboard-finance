@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Calculator, Package, Store, Save, RefreshCcw, DollarSign, 
   ClipboardList, TrendingUp, Percent, Tag, Activity, Truck, Users, Target
@@ -29,6 +29,29 @@ export default function KalkulatorHPPPage() {
 
   // STATE HISTORY
   const [history, setHistory] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch('/api/history');
+        const data = await res.json();
+        if (data.success) {
+          const formattedHistory = data.data.map((item: any) => ({
+            id: item.id,
+            date: new Date(item.created_at).toLocaleDateString('id-ID'),
+            platform: item.platform,
+            namaProduk: item.nama_produk,
+            totalHPP: parseFloat(item.total_hpp),
+            hargaJualAmanEtalase: parseFloat(item.harga_jual_etalase),
+            targetProfit: parseFloat(item.target_profit_persen)
+          }));
+          setHistory(formattedHistory);
+        }
+      } catch (error) {}
+    };
+    fetchHistory();
+  }, []);
 
   // LOGIKA PERSENTASE ADMIN PLATFORM
   const getAdminFeePercent = (plat: string) => {
@@ -98,20 +121,41 @@ export default function KalkulatorHPPPage() {
     setOngkirPenjual(""); setBiayaIklan(""); setTargetProfitPersen(25);
   };
 
-  const handleSaveToHistory = () => {
+  const handleSaveToHistory = async () => {
     if (!namaProduk || totalHPP === 0) return alert("Nama produk dan modal wajib diisi!");
-    const newRecord = {
-      id: Date.now(),
-      date: new Date().toLocaleDateString('id-ID'),
-      platform,
-      namaProduk,
-      totalHPP,
-      hargaJualAmanEtalase,
-      targetProfit: numTargetProfit
-    };
-    setHistory([newRecord, ...history]);
-    // Jangan reset semua agar bisa membandingkan produk lain dengan skema yang sama
-    setNamaProduk(""); 
+    setIsLoading(true);
+    try {
+      const payload = {
+        platform,
+        namaProduk,
+        totalHPP,
+        hargaJualAmanEtalase,
+        targetProfit: numTargetProfit
+      };
+      const response = await fetch('/api/history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (result.success) {
+        const newRecord = {
+          id: result.data.id,
+          date: new Date(result.data.created_at).toLocaleDateString('id-ID'),
+          platform,
+          namaProduk,
+          totalHPP,
+          hargaJualAmanEtalase,
+          targetProfit: numTargetProfit
+        };
+        setHistory([newRecord, ...history]);
+        // Jangan reset semua agar bisa membandingkan produk lain dengan skema yang sama
+        setNamaProduk(""); 
+      }
+    } catch (error) {
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -231,11 +275,11 @@ export default function KalkulatorHPPPage() {
 
             {/* BUTTONS */}
             <div className="flex gap-4 mt-8">
-              <button onClick={handleReset} className="w-1/3 py-3 bg-white/5 border border-white/10 text-slate-300 rounded-xl font-bold text-sm hover:bg-white/10 transition-all">
+              <button onClick={handleReset} disabled={isLoading} className="w-1/3 py-3 bg-white/5 border border-white/10 text-slate-300 rounded-xl font-bold text-sm hover:bg-white/10 transition-all disabled:opacity-50">
                 Reset
               </button>
-              <button onClick={handleSaveToHistory} className="w-2/3 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl font-bold text-sm hover:from-indigo-500 hover:to-blue-500 transition-all shadow-[0_0_20px_rgba(79,70,229,0.4)]">
-                Simpan Target
+              <button onClick={handleSaveToHistory} disabled={isLoading} className="w-2/3 py-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl font-bold text-sm hover:from-indigo-500 hover:to-blue-500 transition-all shadow-[0_0_20px_rgba(79,70,229,0.4)] disabled:opacity-50 flex justify-center items-center gap-2">
+                {isLoading ? <><RefreshCcw size={16} className="animate-spin" /> Menyimpan...</> : <><Save size={16} /> Simpan Target</>}
               </button>
             </div>
           </div>

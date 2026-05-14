@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Upload, BarChart3, Settings, 
   Table as TableIcon, ChevronLeft, ChevronRight, CheckCircle2,
   WalletCards, TrendingDown, CircleDollarSign, ArrowUpDown, ArrowUp, ArrowDown,
-  Eye, X, Search, Calendar, Save, Check, ShoppingBag, Download
+  Eye, X, Search, Calendar, Save, Check, ShoppingBag, Download, Package
 } from "lucide-react";
 import Link from "next/link";
 
@@ -103,13 +103,15 @@ const fetchData = async () => {
 
         if (isCSV) {
           const text = evt.target.result as string;
-          // 1. PECAH PER BARIS DULU: Mencegah kutip ("inch") yang rusak menelan seluruh file!
+          // 1. PECAH PER BARIS DULU
           const lines = text.split(/\r?\n/);
           if (lines.length < 1) {
             setIsUploading(false); return;
           }
           
-          const delimiter = (lines[0].match(/;/g) || []).length > (lines[0].match(/,/g) || []).length ? ';' : ',';
+          // Cari baris valid pertama untuk deteksi delimiter (karena kadang baris 1 kosong di CSV TikTok)
+          const sampleLine = lines.find(l => l.includes(',') || l.includes(';')) || lines[0];
+          const delimiter = (sampleLine.match(/;/g) || []).length > (sampleLine.match(/,/g) || []).length ? ';' : ',';
           
           for (let line of lines) {
             if (!line.trim()) continue;
@@ -154,50 +156,59 @@ const fetchData = async () => {
           setIsUploading(false); return;
         }
 
+        // 1. CARI HEADER ROW (ANTI GAGAL: Bersihkan karakter dan spasi)
         let headerIdx = -1;
         for (let i = 0; i < Math.min(30, rows.length); i++) {
-          const rowStr = rows[i].join("|").toLowerCase();
-          if (rowStr.includes("order id") || rowStr.includes("order/adjustment id") || rowStr.includes("id pesanan")) {
+          const rowStr = rows[i].join("").toLowerCase().replace(/[^a-z0-9]/g, '');
+          // Cari keyword dasar tanpa spasi
+          if (rowStr.includes("orderid") || rowStr.includes("idpesanan") || rowStr.includes("adjustmentid")) {
             headerIdx = i; break;
           }
         }
 
         if (headerIdx === -1) {
-           alert("Gagal membaca header! Pastikan ini file 'Order Details' TikTok.");
+           alert("Gagal membaca header! Pastikan ini file 'Order Details' atau Settlement TikTok.");
            setIsUploading(false); return; 
         }
 
-        const headers = Array.from(rows[headerIdx] || []).map(h => String(h || "").trim().toLowerCase());
+        const headers = Array.from(rows[headerIdx] || []).map(h => String(h || "").trim());
         
-        // 2. PENCARIAN KOLOM SUPER KETAT (Harus 100% Cocok, Mencegah kolom tertukar dengan Berat Paket)
-        const findIdx = (keys: string[]) => headers.findIndex(h => keys.includes(h));
+const findIdx = (keys: string[]) => headers.findIndex(h => {
+          const cleanH = String(h).toLowerCase().replace(/[^a-z0-9]/g, '');
+          return keys.some(k => String(k).toLowerCase().replace(/[^a-z0-9]/g, '') === cleanH);
+        });
 
-        const iID = findIdx(['pesanan / id penyesuaian', 'order/adjustment id', 'order id', 'id pesanan']);
-        const iType = findIdx(['type', 'tipe', 'jenis']);
-        const iRev = findIdx(['total nilai pesanan', 'total revenue', 'pendapatan']);
-        const iNet = findIdx(['jumlah penyelesaian', 'total settlement amount', 'total settlement', 'dana diselesaikan']);
+        const iID = findIdx(['id pesanan/penyesuaian', 'pesanan / id penyesuaian', 'order/adjustment id', 'order id', 'id pesanan']);
+        const iType = findIdx(['jenis transaksi', 'type', 'tipe', 'jenis']);
+        const iRev = findIdx(['total pendapatan', 'total nilai pesanan', 'total revenue', 'pendapatan']);
+        const iNet = findIdx(['jumlah penyelesaian pembayaran', 'jumlah penyelesaian', 'total settlement amount', 'total settlement', 'dana diselesaikan']);
         const iFee = findIdx(['total biaya', 'total fees', 'biaya platform']);
-        const iDate = findIdx(['waktu penyelesaian', 'order settled time', 'settlement time']);
-        const iCreatedDate = findIdx(['waktu pesanan dibuat', 'order created time']);
-        const iSubtotal = findIdx(['subtotal produk', 'product subtotal', 'subtotal before discounts']);
-        const iShippingBuyer = findIdx(['ongkos kirim dibayar oleh pembeli', 'shipping cost paid by the customer', 'customer shipping fee']);
-        const iShippingSubsidy = findIdx(['subsidi ongkos kirim tiktok', 'shipping cost subsidy', 'tiktok shipping subsidy']);
-        const iAdjustment = findIdx(['penyesuaian', 'ajustment amount', 'adjustment amount', 'adjustment']);
-        const iSellerDiscount = findIdx(['diskon dari penjual', 'seller discounts', 'seller discount']);
-        const iPlatformFee = findIdx(['biaya komisi', 'platform commission fee', 'platform commission']);
-        const iPaymentFee = findIdx(['biaya layanan pesanan', 'payment fee']);
+        const iDate = findIdx(['waktu pembayaran pesanan', 'waktu penyelesaian', 'order settled time', 'settlement time']);
+        const iCreatedDate = findIdx(['waktu pemesanan', 'waktu pesanan dibuat', 'order created time']);
+        const iSubtotal = findIdx(['subtotal sebelum diskon', 'subtotal produk', 'product subtotal', 'subtotal before discounts']);
+        const iShippingBuyer = findIdx(['ongkir yang ditanggung pembeli', 'ongkos kirim dibayar oleh pembeli', 'shipping cost paid by the customer', 'customer shipping fee']);
+        const iShippingSubsidy = findIdx(['subsidi ongkir', 'subsidi ongkos kirim tiktok', 'shipping cost subsidy', 'tiktok shipping subsidy']);
+        const iAdjustment = findIdx(['jumlah penyesuaian', 'penyesuaian', 'ajustment amount', 'adjustment amount', 'adjustment']);
+        const iSellerDiscount = findIdx(['diskon penjual', 'diskon dari penjual', 'seller discounts', 'seller discount']);
+        const iPlatformFee = findIdx(['biaya komisi platform', 'biaya komisi', 'platform commission fee', 'platform commission']);
+        const iPaymentFee = findIdx(['biaya pembayaran', 'biaya layanan pesanan', 'payment fee']);
         const iAffiliateFee = findIdx(['komisi afiliasi', 'affiliate commission']);
-        const iFreeShippingFee = findIdx(['biaya program gratis ongkir', 'shipping fee program service fee', 'dynamic commission', 'free shipping fee']);
-        const iTax = findIdx(['pajak', 'tax']);
-        const iCodFee = findIdx(['biaya cod', 'cod fee']);
+        const iFreeShippingFee = findIdx(['biaya layanan program bebas ongkir', 'biaya program gratis ongkir', 'shipping fee program service fee', 'dynamic commission', 'free shipping fee']);
+        const iTax = findIdx(['pph pasal 22 dipungut', 'pajak', 'tax']);
+        const iCodFee = findIdx(['biaya penanganan cod', 'biaya cod', 'cod fee']);
         
-        // TAMBAHAN: Coba cari kolom SKU, QTY, dan NAMA PRODUK di CSV Finance
         const iSku = findIdx(['sku id', 'seller sku', 'sku penjual', 'id sku', 'sku']);
         const iQtyCSV = findIdx(['jumlah', 'quantity', 'qty']);
-        const iName = findIdx(['nama produk', 'product name', 'item name', 'nama barang']);
+        const iName = findIdx(['detail produk terjual', 'nama produk', 'product name', 'item name', 'nama barang']);
 
+        // PENGECEKAN KEAMANAN FILE (Mencegah Salah Upload File Pesanan)
         if (iID === -1) {
-          alert("Gagal menemukan kolom ID Pesanan yang valid.");
+          alert("Gagal menemukan kolom ID Pesanan. Format mungkin tidak valid.");
+          setIsUploading(false); return;
+        }
+
+        if (iNet === -1 && iFee === -1) {
+          alert("File berhasil dibaca, tapi kolom Nilai Pencairan (Settlement) TIDAK DITEMUKAN!\n\nSepertinya Anda mengupload file 'Data Pesanan'. Pastikan Anda mendownload file dari menu 'Keuangan / Finance' di TikTok Seller Center.");
           setIsUploading(false); return;
         }
 
@@ -216,7 +227,7 @@ const fetchData = async () => {
 
           if (cleanID.length >= 10) {
             const cleanNum = (val: any) => {
-              if (!val) return 0;
+              if (val === undefined || val === null || val === '') return 0;
               let s = String(val).trim().replace(/Rp/gi, '').replace(/\s/g, '');
               if (s.includes(',') && s.includes('.')) {
                 if (s.indexOf(',') < s.indexOf('.')) s = s.replace(/,/g, ''); 
@@ -258,7 +269,6 @@ const fetchData = async () => {
 
             // Jika CSV Finance tidak punya informasi produk, tarik dari Data Penjualan (Orders) di Database
             const matchingSales = salesOrders.find((s: any) => {
-              // Mencegah error mapping ID (Cover segala kemungkinan properti dari database)
               const salesId = String(s.orderId || s.order_id || s.idPesanan || s.id_pesanan || "").trim().replace(/\D/g, '');
               return salesId === cleanID;
             });
@@ -273,7 +283,6 @@ const fetchData = async () => {
             let hppPerItem = 0;
             let matchingProduct = null;
 
-            // STRATEGI A: Cocokkan SKU persis
             if (sku) {
               const cleanSku = String(sku).trim().toLowerCase();
               matchingProduct = products.find((p: any) => 
@@ -281,17 +290,13 @@ const fetchData = async () => {
               );
             }
 
-            // STRATEGI B: Jika SKU gagal / kosong, tembak pakai Nama Produk
             if (!matchingProduct && productName) {
               const cleanOrderName = String(productName).trim().toLowerCase();
-              
-              // Exact Name
               matchingProduct = products.find((p: any) => {
                 const masterName = String(p.name || p.nama || p.namaProduk || p.nama_produk || "").trim().toLowerCase();
                 return masterName === cleanOrderName;
               });
 
-              // Fuzzy Name Jitu (Hanya ambil huruf dan angka, potong jadi kata)
               if (!matchingProduct) {
                 const orderWords = cleanOrderName.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 2);
                 let bestMatch = null;
@@ -302,50 +307,49 @@ const fetchData = async () => {
                   const masterWords = masterName.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 2);
 
                   let score = 0;
-                  orderWords.forEach(w => {
-                    if (masterWords.includes(w)) score++;
-                  });
+                  orderWords.forEach(w => { if (masterWords.includes(w)) score++; });
 
                   if (score >= 2 && score > highestScore) {
-                    highestScore = score;
-                    bestMatch = p;
+                    highestScore = score; bestMatch = p;
                   }
                 });
-
                 if (bestMatch) matchingProduct = bestMatch;
               }
             }
 
-            // STRATEGI C: Ambil Harga Modal (Pastikan penulisan prop API tercover semua)
             if (matchingProduct) {
-              // Dari file Master Produkmu, prop-nya biasanya bernama 'hargaModal'
               const rawHpp = matchingProduct.hargaModal || matchingProduct.harga_modal || matchingProduct.hpp || 0;
-              hppPerItem = cleanNum(rawHpp); // Ubah jadi angka bersih
+              hppPerItem = cleanNum(rawHpp); 
             }
 
             // --- DETEKSI STATUS PESANAN ---
             let statusPesanan = "Selesai";
             const rowType = String(row[iType] || "").toLowerCase();
+            const isNIL = net === 0 && fees === 0; // Pindahkan ke atas untuk deteksi awal
             
             if (rowType.includes('refund') || rowType.includes('retur')) {
               statusPesanan = "Retur";
             } else if (rowType.includes('ads') || rowType.includes('deduction')) {
               statusPesanan = "Tagihan Iklan";
-            } else if (net === 0 && revenue === 0 && fees === 0 && rowType.includes('order')) {
+            } else if (isNIL) {
+              // OVERRIDE OTOMATIS: Jika pencairan 0 & potongan 0, paksa status jadi Batal
+              // Abaikan status "Dikirim" dari database lama karena nyatanya transaksi ini gagal.
               statusPesanan = "Batal";
             } else if (matchingSales && matchingSales.status) {
-              statusPesanan = matchingSales.status; // Jika ada data dari tabel sales
+              statusPesanan = matchingSales.status; 
             }
 
-            // 3. KALKULASI TOTAL HPP AKHIR (Mencegah Minus Palsu)
-            qty = qty || 1; // Default 1
+            // 3. KALKULASI TOTAL HPP AKHIR
+            qty = qty || 1; 
             
-            // Jika pesanan Batal atau Retur, Harga Modal (HPP) tidak dihitung sebagai kerugian.
+            // Artinya barang kembali/batal, jadi Modal (HPP) tidak hangus.
             const isCancelled = statusPesanan === "Batal" || statusPesanan === "Retur";
+            
             const totalHpp = isCancelled ? 0 : (qty * hppPerItem);
             
-            // Jika pesanan Batal, biaya admin juga dianggap 0 karena TikTok tidak jadi memotong
-            const finalFees = isCancelled ? 0 : fees;
+            // GUNAKAN POTONGAN NYATA (Pendapatan - Cair) agar tabel selaras dengan Laba Bersih
+            const trueFees = revenue - net;
+            const finalFees = isCancelled ? 0 : trueFees;
             const finalLabaBersih = isCancelled ? 0 : (net - totalHpp);
 
             finalData.push({
@@ -361,7 +365,14 @@ const fetchData = async () => {
         if (finalData.length === 0) {
           alert("Data tidak ditemukan! Pastikan file CSV tidak kosong.");
         } else {
-          setFinances(finalData);
+          setFinances(prev => {
+            const combined = [...prev, ...finalData];
+            const uniqueMap = new Map();
+            combined.forEach(item => {
+              uniqueMap.set(item.orderId, item);
+            });
+            return Array.from(uniqueMap.values());
+          });
         }
 
         setIsUploading(false);
@@ -444,20 +455,35 @@ const fetchData = async () => {
   // 3. KALKULASI SUMMARY METRICS KEUANGAN
   const summaryMetrics = useMemo(() => {
     let totalRevenue = 0;
-    let totalFees = 0;
     let totalNet = 0;
-    let totalHpp = 0; // Tambahan untuk HPP
+    let totalHpp = 0; 
     let totalProfit = 0;
+    
+    // Tambahan metrik barang
+    let totalQtyTerjual = 0;
+    let totalPesanan = filteredFinances.length;
+    let totalPesananGagal = 0;
 
     filteredFinances.forEach(item => {
       totalRevenue += item.revenue;
-      totalFees += item.fees; 
       totalNet += item.net;
-      totalHpp += (item.totalHpp || 0); // Menjumlahkan Total HPP
+      totalHpp += (item.totalHpp || 0); 
       totalProfit += (item.labaBersih || 0);
+      
+      if (item.orderStatus === "Batal" || item.orderStatus === "Retur") {
+        totalPesananGagal += 1;
+      } else {
+        totalQtyTerjual += (item.qty || 1);
+      }
     });
 
-    return { totalRevenue, totalFees, totalNet, totalHpp, totalProfit };
+    // MENGHITUNG BIAYA / POTONGAN NYATA AGAR (A - B = C) 100% AKURAT
+    // Termasuk potongan diskon penjual, penalti, dll yang disembunyikan TikTok
+    const totalFees = totalRevenue - totalNet;
+
+    const rasioRetur = totalPesanan === 0 ? 0 : ((totalPesananGagal / totalPesanan) * 100).toFixed(1);
+
+    return { totalRevenue, totalFees, totalNet, totalHpp, totalProfit, totalQtyTerjual, rasioRetur, totalPesananGagal };
   }, [filteredFinances]);
 
   // 4. LOGIKA SORTING
@@ -556,21 +582,36 @@ const formatRupiah = (angka: any) => {
     }
 
     // Mapping data agar rapi di Excel
-    const dataToExport = filteredFinances.map((item, index) => ({
-      "No": index + 1,
-      "Order ID": item.orderId,
-      "Status": item.orderStatus || "Selesai",
-      "Tanggal Dibuat": formatDisplayDate(item.createdDate),
-      "Tanggal Selesai": formatDisplayDate(item.date),
-      "Nama Produk": item.productName || "-",
-      "SKU / Variasi": item.sku || "-",
-      "QTY": item.qty || 1,
-      "Harga Jual": item.subtotal / (item.qty || 1),
-      "Harga Modal": item.hppPerItem,
-      "Total HPP": item.totalHpp,
-      "Biaya Admin": item.fees,
-      "Laba Bersih": item.labaBersih
-    }));
+    const dataToExport = filteredFinances.map((item, index) => {
+      const matchSales = salesOrders.find((s: any) => String(s.orderId).replace(/\D/g, '') === String(item.orderId).replace(/\D/g, ''));
+      return {
+        "No": index + 1,
+        "Order ID": item.orderId,
+        "Status": item.orderStatus || "Selesai",
+        "Tanggal Dibuat": formatDisplayDate(item.createdDate),
+        "Tanggal Selesai": formatDisplayDate(item.date),
+        "Nama Produk": matchSales?.productName || item.productName || "-",
+        "SKU / Variasi": matchSales?.sku || item.sku || "-",
+        "QTY": item.qty || 1,
+        "Harga Jual": item.subtotal / (item.qty || 1),
+        "Harga Modal": item.hppPerItem,
+        "Total HPP": item.totalHpp,
+        "Biaya Admin": item.fees,
+        "Laba Bersih": item.labaBersih
+      };
+    });
+
+    // Menambahkan Baris Total di Paling Bawah Excel
+    dataToExport.push({
+      "No": "", "Order ID": "", "Status": "", "Tanggal Dibuat": "", "Tanggal Selesai": "", "Nama Produk": "", 
+      "SKU / Variasi": "TOTAL KESELURUHAN",
+      "QTY": dataToExport.reduce((acc, curr) => acc + (Number(curr["QTY"]) || 0), 0),
+      "Harga Jual": "", 
+      "Harga Modal": "",
+      "Total HPP": dataToExport.reduce((acc, curr) => acc + (Number(curr["Total HPP"]) || 0), 0),
+      "Biaya Admin": dataToExport.reduce((acc, curr) => acc + (Number(curr["Biaya Admin"]) || 0), 0),
+      "Laba Bersih": dataToExport.reduce((acc, curr) => acc + (Number(curr["Laba Bersih"]) || 0), 0)
+    } as any);
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
@@ -597,6 +638,18 @@ const formatRupiah = (angka: any) => {
                 <div className="flex gap-3">
             {user?.role === 'admin' && (
               <>
+                {finances.length > 0 && (
+                  <button 
+                    onClick={() => {
+                      if(window.confirm("Batalkan semua data di layar dan kembali ke data awal?")) {
+                        window.location.reload();
+                      }
+                    }}
+                    className="bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg cursor-pointer hover:bg-red-100 flex items-center gap-2 text-sm font-bold transition-all shadow-sm"
+                  >
+                    <X size={16} /> Reset Upload
+                  </button>
+                )}
                 <button 
                   onClick={handleSaveToDatabase} 
                   disabled={isSaving || finances.length === 0}
@@ -613,51 +666,74 @@ const formatRupiah = (angka: any) => {
           </div>
         </header>
 
-        {/* SUMMARY CARDS KEUANGAN */}
-        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-4">
+{/* SUMMARY CARDS KEUANGAN */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4 mb-4">
           <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center relative overflow-hidden">
-            <div className="absolute right-3 top-3 bg-blue-50 p-1.5 rounded-full">
+            <div className="absolute right-3 top-3 bg-blue-50 p-1.5 rounded-full hidden sm:block">
               <CircleDollarSign size={16} className="text-blue-500" />
             </div>
-            <p className="text-[11px] font-semibold text-slate-500 mb-0.5">Pendapatan Kotor</p>
-            <h3 className="text-lg font-bold text-slate-900">{formatRupiah(summaryMetrics.totalRevenue)}</h3>
-            <p className="text-[9px] text-slate-400 mt-0.5">Harga barang sebelum dipotong</p>
+            <p className="text-[10px] sm:text-[11px] font-semibold text-slate-500 mb-0.5">Pendapatan Kotor</p>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 truncate">{formatRupiah(summaryMetrics.totalRevenue)}</h3>
+            <p className="text-[8px] sm:text-[9px] text-slate-400 mt-0.5">Harga sblm dipotong</p>
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-red-100 shadow-sm flex flex-col justify-center relative overflow-hidden">
-            <div className="absolute right-3 top-3 bg-red-50 p-1.5 rounded-full">
+            <div className="absolute right-3 top-3 bg-red-50 p-1.5 rounded-full hidden sm:block">
               <TrendingDown size={16} className="text-red-500" />
             </div>
-            <p className="text-[11px] font-semibold text-red-500 mb-0.5">Total Potongan (Fees)</p>
-            <h3 className="text-lg font-bold text-red-600">{formatRupiah(summaryMetrics.totalFees)}</h3>
-            <p className="text-[9px] text-red-400 mt-0.5">Komisi, layanan & ongkir</p>
+            <p className="text-[10px] sm:text-[11px] font-semibold text-red-500 mb-0.5">Total Potongan</p>
+            <h3 className="text-base sm:text-lg font-bold text-red-600 truncate">{formatRupiah(summaryMetrics.totalFees)}</h3>
+            <p className="text-[8px] sm:text-[9px] text-red-400 mt-0.5">Komisi & ongkir</p>
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-center relative overflow-hidden border-b-4 border-b-emerald-500">
-            <div className="absolute right-3 top-3 bg-emerald-50 p-1.5 rounded-full">
+            <div className="absolute right-3 top-3 bg-emerald-50 p-1.5 rounded-full hidden sm:block">
               <WalletCards size={16} className="text-emerald-600" />
             </div>
-            <p className="text-[11px] font-semibold text-slate-500 mb-0.5">Pencairan (Settlement)</p>
-            <h3 className="text-lg font-bold text-emerald-600">{formatRupiah(summaryMetrics.totalNet)}</h3>
-            <p className="text-[9px] text-slate-400 mt-0.5">Uang bersih cair dari TikTok</p>
+            <p className="text-[10px] sm:text-[11px] font-semibold text-slate-500 mb-0.5">Pencairan (Cair)</p>
+            <h3 className="text-base sm:text-lg font-bold text-emerald-600 truncate">{formatRupiah(summaryMetrics.totalNet)}</h3>
+            <p className="text-[8px] sm:text-[9px] text-slate-400 mt-0.5">Uang bersih diterima</p>
           </div>
 
           <div className="bg-white p-3 rounded-xl border border-orange-100 shadow-sm flex flex-col justify-center relative overflow-hidden">
-            <div className="absolute right-3 top-3 bg-orange-50 p-1.5 rounded-full">
+            <div className="absolute right-3 top-3 bg-orange-50 p-1.5 rounded-full hidden sm:block">
               <ShoppingBag size={16} className="text-orange-500" />
             </div>
-            <p className="text-[11px] font-semibold text-orange-500 mb-0.5">Total Modal (HPP)</p>
-            <h3 className="text-lg font-bold text-orange-600">{formatRupiah(summaryMetrics.totalHpp)}</h3>
-            <p className="text-[9px] text-orange-400 mt-0.5">Akumulasi harga modal</p>
+            <p className="text-[10px] sm:text-[11px] font-semibold text-orange-500 mb-0.5">Total Modal (HPP)</p>
+            <h3 className="text-base sm:text-lg font-bold text-orange-600 truncate">{formatRupiah(summaryMetrics.totalHpp)}</h3>
+            <p className="text-[8px] sm:text-[9px] text-orange-400 mt-0.5">Akumulasi modal</p>
           </div>
 
-          <div className="bg-emerald-600 p-3 rounded-xl border border-emerald-700 shadow-md flex flex-col justify-center relative overflow-hidden text-white">
-            <div className="absolute right-3 top-3 bg-white/20 p-1.5 rounded-full">
+          <div className={`${summaryMetrics.totalProfit < 0 ? 'bg-rose-600 border-rose-700' : 'bg-emerald-600 border-emerald-700'} p-3 rounded-xl border shadow-md flex flex-col justify-center relative overflow-hidden text-white transition-colors duration-300`}>
+            <div className="absolute right-3 top-3 bg-white/20 p-1.5 rounded-full hidden sm:block">
               <BarChart3 size={16} className="text-white" />
             </div>
-            <p className="text-[11px] font-semibold text-emerald-100 mb-0.5">Total Profit Internal</p>
-            <h3 className="text-lg font-bold text-white">{formatRupiah(summaryMetrics.totalProfit)}</h3>
-            <p className="text-[9px] text-emerald-100 mt-0.5">Pencairan dikurangi modal</p>
+            <p className={`text-[10px] sm:text-[11px] font-semibold mb-0.5 ${summaryMetrics.totalProfit < 0 ? 'text-rose-100' : 'text-emerald-100'}`}>Profit Internal</p>
+            <div className="flex items-baseline gap-1.5">
+              <h3 className="text-base sm:text-lg font-bold text-white truncate">{formatRupiah(summaryMetrics.totalProfit)}</h3>
+              {summaryMetrics.totalRevenue > 0 && (
+                <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${summaryMetrics.totalProfit < 0 ? 'bg-rose-700/50 text-rose-100' : 'bg-emerald-700/50 text-emerald-100'}`}>
+                  {((summaryMetrics.totalProfit / summaryMetrics.totalRevenue) * 100).toFixed(1)}%
+                </span>
+              )}
+            </div>
+            <p className={`text-[8px] sm:text-[9px] mt-0.5 ${summaryMetrics.totalProfit < 0 ? 'text-rose-200' : 'text-emerald-100'}`}>Pencairan dikurangi modal</p>
+          </div>
+
+          <div className="bg-slate-800 p-3 rounded-xl border border-slate-900 shadow-md flex flex-col justify-center relative overflow-hidden text-white">
+            <div className="absolute right-3 top-3 bg-white/10 p-1.5 rounded-full hidden sm:block">
+              <Package size={16} className="text-white" />
+            </div>
+            <p className="text-[10px] sm:text-[11px] font-semibold text-slate-300 mb-0.5">Performa Produk</p>
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-base sm:text-lg font-bold text-white">{summaryMetrics.totalQtyTerjual} <span className="text-[11px] font-normal text-slate-300">Pcs</span></h3>
+              {Number(summaryMetrics.rasioRetur) > 0 && (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${Number(summaryMetrics.rasioRetur) > 10 ? 'bg-red-500/80 text-white' : 'bg-yellow-500/80 text-white'}`} title={`${summaryMetrics.totalPesananGagal} Pesanan Batal/Retur`}>
+                  {summaryMetrics.rasioRetur}% Retur
+                </span>
+              )}
+            </div>
+            <p className="text-[8px] sm:text-[9px] text-slate-400 mt-0.5">Total barang sukses terjual</p>
           </div>
         </div>
 
@@ -755,7 +831,10 @@ const formatRupiah = (angka: any) => {
                     <div className="flex items-center">Order ID {getSortIcon('orderId')}</div>
                   </th>
                   <th onClick={() => requestSort('orderStatus')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors">
-                    <div className="flex items-center">Status {getSortIcon('orderStatus')}</div>
+                    <div className="flex items-center">Status Pesanan {getSortIcon('orderStatus')}</div>
+                  </th>
+                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-center">
+                    Status Dana
                   </th>
                   <th onClick={() => requestSort('createdDate')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors">
                     <div className="flex items-center">Tgl Dibuat {getSortIcon('createdDate')}</div>
@@ -776,7 +855,7 @@ const formatRupiah = (angka: any) => {
                     <div className="flex items-center justify-end">Total HPP {getSortIcon('totalHpp')}</div>
                   </th>
                   <th onClick={() => requestSort('fees')} className="px-6 py-3.5 text-[11px] font-semibold text-red-500 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors text-right">
-                    <div className="flex items-center justify-end">Biaya Admin {getSortIcon('fees')}</div>
+                    <div className="flex items-center justify-end">Total Potongan {getSortIcon('fees')}</div>
                   </th>
                   <th onClick={() => requestSort('labaBersih')} className="px-6 py-3.5 text-[11px] font-semibold text-emerald-600 uppercase tracking-wider cursor-pointer group hover:bg-slate-100 transition-colors text-right font-bold">
                     <div className="flex items-center justify-end">Laba Bersih {getSortIcon('labaBersih')}</div>
@@ -799,14 +878,32 @@ const formatRupiah = (angka: any) => {
                           {item.orderStatus || 'Selesai'}
                         </span>
                       </td>
+                      <td className="px-6 py-4 text-center">
+                        {item.net > 0 ? (
+                          <span className="px-2 py-1 rounded border border-emerald-200 bg-emerald-50 text-emerald-600 text-[10px] font-bold">CAIR</span>
+                        ) : item.net < 0 ? (
+                          <span className="px-2 py-1 rounded border border-red-200 bg-red-50 text-red-600 text-[10px] font-bold">DIPOTONG</span>
+                        ) : (
+                          <span className="px-2 py-1 rounded border border-slate-200 bg-slate-100 text-slate-500 text-[10px] font-bold">NIL</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-700 whitespace-nowrap">{formatDisplayDate(item.createdDate)}</td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-700 whitespace-nowrap">{formatDisplayDate(item.date)}</td>
                       <td className="px-6 py-4 text-sm text-center text-slate-600">{item.qty}</td>
                       <td className="px-6 py-4 text-sm text-right text-slate-600">{formatRupiah(item.subtotal / (item.qty || 1))}</td>
-                      <td className="px-6 py-4 text-sm text-right text-slate-500 font-medium">{formatRupiah(item.hppPerItem)}</td>
-                      <td className="px-6 py-4 text-sm text-right text-slate-700 font-bold bg-slate-50">{formatRupiah(item.totalHpp)}</td>
+                      <td className={`px-6 py-4 text-sm text-right font-medium relative ${item.hppPerItem === 0 && item.orderStatus !== 'Batal' && item.orderStatus !== 'Retur' ? 'bg-yellow-50 text-yellow-700' : 'text-slate-500'}`}>
+                        {item.hppPerItem === 0 && item.orderStatus !== 'Batal' && item.orderStatus !== 'Retur' && (
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-yellow-500 cursor-help" title="HPP Rp 0! Tambahkan SKU produk ini di Master Produk agar Laba Bersih akurat.">⚠️</span>
+                        )}
+                        {formatRupiah(item.hppPerItem)}
+                      </td>
+                      <td className={`px-6 py-4 text-sm text-right font-bold ${item.hppPerItem === 0 && item.orderStatus !== 'Batal' && item.orderStatus !== 'Retur' ? 'bg-yellow-100 text-yellow-800' : 'bg-slate-50 text-slate-700'}`}>
+                        {formatRupiah(item.totalHpp)}
+                      </td>
                       <td className="px-6 py-4 text-sm text-right text-red-500 font-medium">{formatRupiah(item.fees)}</td>
-                      <td className={`px-6 py-4 text-sm text-right font-bold ${item.labaBersih < 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatRupiah(item.labaBersih)}</td>
+                      <td className={`px-6 py-4 text-sm text-right font-bold ${item.labaBersih < 0 ? 'text-red-500' : item.labaBersih > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                        {formatRupiah(item.labaBersih)}
+                      </td>
                       <td className="px-6 py-4 text-center">
                         <button 
                           onClick={() => setSelectedOrder(item)}
@@ -937,14 +1034,14 @@ const formatRupiah = (angka: any) => {
                   </div>
                   <div className="min-w-0">
                     <p className="text-slate-500 mb-1">Nama Produk</p>
-                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.productName || "Tidak Diketahui"}>
-                      {selectedOrder.productName || "Tidak Diketahui"}
+                    <p className="font-semibold text-slate-900 truncate" title={salesOrders.find(s => String(s.orderId).replace(/\D/g, '') === String(selectedOrder.orderId).replace(/\D/g, ''))?.productName || selectedOrder.productName || "Tidak Diketahui"}>
+                      {salesOrders.find(s => String(s.orderId).replace(/\D/g, '') === String(selectedOrder.orderId).replace(/\D/g, ''))?.productName || selectedOrder.productName || "Tidak Diketahui"}
                     </p>
                   </div>
                   <div className="min-w-0">
                     <p className="text-slate-500 mb-1">SKU / Variasi</p>
-                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.sku || "-"}>
-                      {selectedOrder.sku || "-"}
+                    <p className="font-semibold text-slate-900 truncate" title={salesOrders.find(s => String(s.orderId).replace(/\D/g, '') === String(selectedOrder.orderId).replace(/\D/g, ''))?.sku || selectedOrder.sku || "-"}>
+                      {salesOrders.find(s => String(s.orderId).replace(/\D/g, '') === String(selectedOrder.orderId).replace(/\D/g, ''))?.sku || selectedOrder.sku || "-"}
                     </p>
                   </div>
                 </div>
