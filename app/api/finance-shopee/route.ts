@@ -62,8 +62,10 @@ export async function POST(request: Request) {
     const finances = await request.json();
 
     for (const item of finances) {
-      // JSONB untuk merapikan puluhan data potongan tanpa membuat kolom satu-satu
-      const detailsJson = {
+      if (!item.orderId) continue; // Skip jika tidak ada Order ID
+
+      // Jadikan String agar Neon SQL bisa menerimanya sebagai JSONB dengan aman
+      const detailsStr = JSON.stringify({
         ongkirPembeli: item.ongkirPembeli || 0,
         subsidiOngkir: item.subsidiOngkir || 0,
         voucherShopee: item.voucherShopee || 0,
@@ -88,16 +90,28 @@ export async function POST(request: Request) {
         transfer: item.transfer || 0,
         materai: item.materai || 0,
         penyesuaianSistem: item.penyesuaianSistem || 0
-      };
+      });
 
+      // Tambahkan Fallback (||) di setiap value agar tidak crash jika datanya undefined
       await sql`
         INSERT INTO shopee_finances (
           order_id, order_status, created_date, date, qty, sku, product_name, 
           hpp_per_item, total_hpp, net, laba_bersih, fees, harga_produk, details
         ) VALUES (
-          ${item.orderId}, ${item.orderStatus}, ${item.createdDate}, ${item.date}, 
-          ${item.qty}, ${item.sku}, ${item.productName}, ${item.hppPerItem}, 
-          ${item.totalHpp}, ${item.net}, ${item.labaBersih}, ${item.fees}, ${item.hargaProduk}, ${detailsJson}
+          ${item.orderId}, 
+          ${item.orderStatus || '-'}, 
+          ${item.createdDate || '-'}, 
+          ${item.date || '-'}, 
+          ${Number(item.qty) || 0}, 
+          ${item.sku || '-'}, 
+          ${item.productName || '-'}, 
+          ${Number(item.hppPerItem) || 0}, 
+          ${Number(item.totalHpp) || 0}, 
+          ${Number(item.net) || 0}, 
+          ${Number(item.labaBersih) || 0}, 
+          ${Number(item.fees) || 0}, 
+          ${Number(item.hargaProduk) || 0}, 
+          ${detailsStr}::jsonb
         )
         ON CONFLICT (order_id) DO UPDATE SET 
           order_status = EXCLUDED.order_status,
@@ -117,8 +131,9 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("POST Error:", error);
-    return NextResponse.json({ error: "Gagal menyimpan data" }, { status: 500 });
+  } catch (error: any) {
+    // Log error asli ke terminal agar mudah dilacak
+    console.error("POST Error Details:", error?.message || error);
+    return NextResponse.json({ error: "Gagal menyimpan data", message: error?.message }, { status: 500 });
   }
 }
