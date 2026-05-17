@@ -65,9 +65,23 @@ export default function ExpensesPage() {
         
         // Filter Data berdasarkan rentang tanggal
         const data = rawData.filter((item: any) => {
-          if (!dateRange.start || !dateRange.end) return true;
-          const datePart = new Date(item.tanggal).toISOString().split('T')[0];
-          return datePart >= dateRange.start && datePart <= dateRange.end;
+          if (!dateRange.start && !dateRange.end) return true;
+          
+          const itemDate = new Date(item.tanggal);
+          const year = itemDate.getFullYear();
+          const month = String(itemDate.getMonth() + 1).padStart(2, '0');
+          const day = String(itemDate.getDate()).padStart(2, '0');
+          const datePart = `${year}-${month}-${day}`;
+
+          if (dateRange.start && dateRange.end && dateRange.start === dateRange.end) {
+            return datePart === dateRange.start;
+          }
+
+          let isValid = true;
+          if (dateRange.start) isValid = isValid && datePart >= dateRange.start;
+          if (dateRange.end) isValid = isValid && datePart <= dateRange.end;
+          
+          return isValid;
         });
 
         setExpenses(data);

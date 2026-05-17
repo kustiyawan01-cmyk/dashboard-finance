@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { useState, useEffect } from "react";
 import { 
-  LayoutDashboard, BarChart3, Calculator, LogOut, Receipt, Box, TrendingUp, Target, Truck, Menu, X, ChevronLeft, ChevronRight
+  LayoutDashboard, BarChart3, Calculator, LogOut, Receipt, Box, TrendingUp, Target, Truck, Menu, X, ChevronLeft, ChevronRight, ScanLine
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -54,6 +54,12 @@ export default function Sidebar() {
       items: [
         { name: "Master Produk", href: "/products", icon: Box },
         { name: "Kalkulator HPP", href: "/kalkulator-hpp", icon: Calculator },
+      ]
+    },
+    {
+      title: "GUDANG & PENGIRIMAN",
+      items: [
+        { name: "Scan & Manifest", href: "/scan-manifest", icon: ScanLine },
       ]
     }
   ];

@@ -24,3 +24,27 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-content {
+    visibility: hidden;
+  }
+  #manifest-to-print, #manifest-to-print * {
+    visibility: visible;
+  }
+  #manifest-to-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 2rem;
+    color: black;
+  }
+  .printable-content, .printable-content * {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}

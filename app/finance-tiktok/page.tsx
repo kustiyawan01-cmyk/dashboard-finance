@@ -10,6 +10,7 @@ import {
   Eye, X, Search, Calendar, Save, Check, ShoppingBag, Download, Package
 } from "lucide-react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 
 export default function FinanceTikTokPage() {
   const { user } = useAuth();
@@ -152,7 +153,7 @@ const fetchData = async () => {
         }
 
         if (rows.length < 2) {
-          alert("Data kosong atau format tidak didukung.");
+          toast.error("Data kosong atau format tidak didukung.");
           setIsUploading(false); return;
         }
 
@@ -167,7 +168,7 @@ const fetchData = async () => {
         }
 
         if (headerIdx === -1) {
-           alert("Gagal membaca header! Pastikan ini file 'Order Details' atau Settlement TikTok.");
+           toast.error("Gagal membaca header! Pastikan ini file 'Order Details' atau Settlement TikTok.");
            setIsUploading(false); return; 
         }
 
@@ -203,12 +204,12 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
 
         // PENGECEKAN KEAMANAN FILE (Mencegah Salah Upload File Pesanan)
         if (iID === -1) {
-          alert("Gagal menemukan kolom ID Pesanan. Format mungkin tidak valid.");
+          toast.error("Gagal menemukan kolom ID Pesanan. Format mungkin tidak valid.");
           setIsUploading(false); return;
         }
 
         if (iNet === -1 && iFee === -1) {
-          alert("File berhasil dibaca, tapi kolom Nilai Pencairan (Settlement) TIDAK DITEMUKAN!\n\nSepertinya Anda mengupload file 'Data Pesanan'. Pastikan Anda mendownload file dari menu 'Keuangan / Finance' di TikTok Seller Center.");
+          toast.error("File berhasil dibaca, tapi kolom Nilai Pencairan (Settlement) TIDAK DITEMUKAN!\n\nSepertinya Anda mengupload file 'Data Pesanan'. Pastikan Anda mendownload file dari menu 'Keuangan / Finance' di TikTok Seller Center.");
           setIsUploading(false); return;
         }
 
@@ -363,7 +364,7 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
         }
 
         if (finalData.length === 0) {
-          alert("Data tidak ditemukan! Pastikan file CSV tidak kosong.");
+          toast.error("Data tidak ditemukan! Pastikan file CSV tidak kosong.");
         } else {
           setFinances(prev => {
             const combined = [...prev, ...finalData];
@@ -373,13 +374,14 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
             });
             return Array.from(uniqueMap.values());
           });
+          toast.success("File Excel berhasil dibaca, silakan Simpan ke Database!");
         }
 
         setIsUploading(false);
         setCurrentPage(1);
       } catch (err) {
         console.error("Gagal total baca file:", err);
-        alert("Terjadi kesalahan fatal saat membaca file.");
+        toast.error("Terjadi kesalahan fatal saat membaca file.");
         setIsUploading(false);
       }
     };
@@ -393,7 +395,10 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
 
   // FUNGSI SIMPAN KE DATABASE NEON
   const handleSaveToDatabase = async () => {
-    if (finances.length === 0) return alert("Belum ada data untuk disimpan!");
+    if (finances.length === 0) {
+      toast.error("Belum ada data untuk disimpan!");
+      return;
+    }
     setIsSaving(true);
     
     try {
@@ -405,12 +410,12 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
 
       const result = await response.json();
       if (response.ok) {
-        alert("Berhasil! " + result.message);
+        toast.success("Data berhasil disimpan!");
       } else {
-        alert("Gagal: " + result.error);
+        toast.error("Gagal: " + result.error);
       }
     } catch (error) {
-      alert("Terjadi kesalahan sistem saat menghubungi database.");
+      toast.error("Terjadi kesalahan sistem saat menghubungi database.");
     } finally {
       setIsSaving(false);
     }
@@ -577,7 +582,7 @@ const formatRupiah = (angka: any) => {
   // FUNGSI EXPORT DATA KE EXCEL
   const handleExportData = () => {
     if (filteredFinances.length === 0) {
-      alert("Tidak ada data untuk diekspor!");
+      toast.error("Tidak ada data untuk diekspor!");
       return;
     }
 

@@ -9,6 +9,7 @@ import {
   Package, Wallet, Truck, Check, XCircle, Download, ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 
 export default function TikTokPage() {
   const { user } = useAuth();
@@ -132,7 +133,7 @@ return matchesSearch && matchesStatus && matchesDate;
   const executeExport = () => {
     // Validasi: Pastikan tanggal sudah diisi di popup export
     if (!exportDateRange.start || !exportDateRange.end) {
-      alert("Mohon pilih rentang tanggal (Mulai & Sampai) terlebih dahulu untuk Export!");
+      toast.error("Mohon pilih rentang tanggal (Mulai & Sampai) terlebih dahulu untuk Export!");
       return;
     }
 
@@ -149,7 +150,7 @@ return matchesSearch && matchesStatus && matchesDate;
     });
 
     if (dataToExportRaw.length === 0) {
-      alert("Tidak ada data untuk rentang tanggal tersebut.");
+      toast.error("Tidak ada data untuk rentang tanggal tersebut.");
       return;
     }
 
@@ -204,9 +205,12 @@ return matchesSearch && matchesStatus && matchesDate;
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ orders: formattedData })
         });
-        if (res.ok) fetchOrders();
+        if (res.ok) {
+          toast.success("Data berhasil disimpan!");
+          fetchOrders();
+        }
       } catch (error) {
-        alert("Gagal membaca file.");
+        toast.error("Gagal membaca file.");
       } finally {
         setIsUploading(false);
         e.target.value = ""; 

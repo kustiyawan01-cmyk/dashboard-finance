@@ -1,6 +1,9 @@
 import { neon } from '@neondatabase/serverless';
 import { NextResponse } from 'next/server';
 
+// WAJIB DITAMBAHKAN: Mencegah Next.js melakukan caching pada route ini
+export const dynamic = 'force-dynamic';
+
 const sql = neon(process.env.DATABASE_URL!);
 
 export async function GET() {
@@ -24,6 +27,9 @@ export async function GET() {
         details JSONB
       );
     `;
+
+    // Pastikan kolom date ditambahkan jika tabel versi lama sudah terlanjur dibuat
+    await sql`ALTER TABLE shopee_finances ADD COLUMN IF NOT EXISTS date VARCHAR(50);`;
 
     const data = await sql`SELECT * FROM shopee_finances ORDER BY date DESC`;
     

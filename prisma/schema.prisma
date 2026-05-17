@@ -5,7 +5,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -32,13 +34,17 @@ model Report {
 }
 
 model ShopeeOrder {
-  id               String   @id @default(cuid())
-  order_id         String   @unique
-  created_date     String
-  settled_date     String
-  qty              Int
-  subtotal         Float
-  shipping_buyer   Float
-  shipping_subsidy Float
-  createdAt        DateTime @default(now())
+  id                 String    @id @default(cuid())
+  order_id           String    @unique
+  created_date       String
+  settled_date       String
+  qty                Int
+  subtotal           Float
+  shipping_buyer     Float
+  shipping_subsidy   Float
+  createdAt          DateTime  @default(now())
+
+  trackingNumber     String?   @unique
+  warehouseScanStatus String    @default("NOT_SCANNED")
+  warehouseScannedAt  DateTime?
 }

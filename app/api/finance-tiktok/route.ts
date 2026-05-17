@@ -1,9 +1,22 @@
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 
+// Mencegah Next.js melakukan caching pada route ini
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const sql = neon(process.env.DATABASE_URL!);
+
+    // AUTO-CREATE KOLOM BARU: Tambahkan kolom jika belum ada di database
+    await sql`
+      ALTER TABLE tiktok_finances 
+      ADD COLUMN IF NOT EXISTS hpp_per_item NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS total_hpp NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS laba_bersih NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS order_status VARCHAR(50) DEFAULT 'Selesai';
+    `;
+
     const data = await sql`SELECT * FROM tiktok_finances ORDER BY settled_date DESC`;
     
     return NextResponse.json(data.map(item => ({
@@ -25,12 +38,13 @@ export async function GET() {
       fees: Number(item.total_fees),
       net: Number(item.net_settlement),
       revenue: Number(item.total_revenue),
-      orderStatus: item.order_status || "Selesai", // <-- Tambahan Status
+      orderStatus: item.order_status || "Selesai",
       hppPerItem: Number(item.hpp_per_item || 0),
       totalHpp: Number(item.total_hpp || 0),
       labaBersih: Number(item.laba_bersih || item.net_settlement)
     })));
   } catch (error) {
+    console.error("GET Error:", error);
     return NextResponse.json({ error: "Gagal ambil data" }, { status: 500 });
   }
 }
@@ -38,6 +52,16 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const sql = neon(process.env.DATABASE_URL!);
+    
+    // Pastikan kolom baru juga di-generate saat melakukan POST
+    await sql`
+      ALTER TABLE tiktok_finances 
+      ADD COLUMN IF NOT EXISTS hpp_per_item NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS total_hpp NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS laba_bersih NUMERIC DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS order_status VARCHAR(50) DEFAULT 'Selesai';
+    `;
+
     const finances = await request.json();
 
     for (const item of finances) {
