@@ -31,6 +31,7 @@ export default function Sidebar() {
         { name: "Dashboard", href: "/", icon: LayoutDashboard },
         { name: "Analytics", href: "/analytics", icon: BarChart3 },
         { name: "ROAS Analyzer", href: "/roas", icon: Target },
+        { name: "Kalkulator HPP", href: "/kalkulator-hpp", icon: Calculator },
       ]
     },
     {
@@ -38,7 +39,6 @@ export default function Sidebar() {
       items: [
         { name: "TikTok Sales", href: "/tiktok", imgSrc: "/tiktok-logo.png" },
         { name: "Shopee Sales", href: "/shopee", imgSrc: "/shopee-logo.png" },
-        { name: "Lacak Retur", href: "/lacak-retur", icon: Truck },
       ]
     },
     {
@@ -53,13 +53,13 @@ export default function Sidebar() {
       title: "INVENTORY & ALAT",
       items: [
         { name: "Master Produk", href: "/products", icon: Box },
-        { name: "Kalkulator HPP", href: "/kalkulator-hpp", icon: Calculator },
       ]
     },
     {
       title: "GUDANG & PENGIRIMAN",
       items: [
         { name: "Scan & Manifest", href: "/scan-manifest", icon: ScanLine },
+        { name: "Lacak Retur", href: "/lacak-retur", icon: Truck },
       ]
     }
   ];

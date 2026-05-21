@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { 
   Search, Package, Truck, CheckCircle2, AlertTriangle, 
   MapPin, Clock, Box, RefreshCcw, ShieldAlert, Upload,
-  Download, Filter, ChevronDown, CheckSquare, Eye, X
+  Download, Filter, ChevronDown, CheckSquare, Eye, X, ScanLine, Calendar
 } from "lucide-react";
 
 export default function LacakReturPage() {
@@ -19,20 +19,60 @@ export default function LacakReturPage() {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [scanInput, setScanInput] = useState("");
+  const [scanMessage, setScanMessage] = useState({ text: "", type: "" });
+  const [datePreset, setDatePreset] = useState("Semua Waktu");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+
+  const parseDateStr = (dateStr: string) => {
+    if (!dateStr || dateStr === "-") return null;
+    const cleanStr = dateStr.includes(" ") ? dateStr.split(" ")[0] : dateStr;
+    const parts = cleanStr.split("/");
+    if (parts.length === 3) {
+      return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    }
+    const partsDash = cleanStr.split("-");
+    if (partsDash.length === 3) {
+      return new Date(parseInt(partsDash[0]), parseInt(partsDash[1]) - 1, parseInt(partsDash[2]));
+    }
+    return null;
+  };
 
   useEffect(() => {
-    const savedData = localStorage.getItem("returDataStore");
-    if (savedData) {
+    const loadDataFromDB = async () => {
       try {
-        setReturData(JSON.parse(savedData));
-      } catch (e) {}
-    }
+        const res = await fetch("/api/retur");
+        if (res.ok) {
+          const data = await res.json();
+          setReturData(data);
+        }
+      } catch (e) {
+        console.error("Gagal memuat data dari database", e);
+      }
+    };
+    loadDataFromDB();
   }, []);
 
   useEffect(() => {
-    if (returData.length > 0) {
-      localStorage.setItem("returDataStore", JSON.stringify(returData));
-    }
+    const saveDataToDB = async () => {
+      if (returData.length > 0) {
+        try {
+          await fetch("/api/retur", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: returData })
+          });
+        } catch (e) {
+          console.error("Gagal menyimpan ke database", e);
+        }
+      }
+    };
+    
+    // Memberikan jeda waktu (debounce) agar tidak terjadi spam API ke Neon
+    const timer = setTimeout(() => saveDataToDB(), 1000);
+    return () => clearTimeout(timer);
   }, [returData]);
 
   // Format Tanggal ISO dari Biteship ke Format Lokal
@@ -159,9 +199,6 @@ const newData: any[] = [];
   const handleSyncTracking = async () => {
     if (returData.length === 0) return alert("Belum ada data retur.");
     
-    const apiKey = process.env.NEXT_PUBLIC_RAJAONGKIR_API_KEY;
-    if (!apiKey) return alert("API Key RajaOngkir belum dikonfigurasi di file .env.local.");
-
     setIsSyncing(true);
     
     const unreceivedData = returData.filter(x => x.statusGudang !== "DITERIMA");
@@ -172,7 +209,7 @@ const newData: any[] = [];
     for (let i = 0; i < unreceivedData.length; i++) {
       const item = unreceivedData[i];
       try {
-        const res = await fetch("/api/rajaongkir", {
+        const res = await fetch("/api/binderbyte", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -187,17 +224,17 @@ const newData: any[] = [];
            continue; // Lanjutkan ke resi berikutnya jika error
         }
 
-        if (result.rajaongkir && result.rajaongkir.status.code === 200) {
-          const deliveryData = result.rajaongkir.result;
-          const manifest = deliveryData.manifest;
-          const latestUpdate = manifest && manifest.length > 0 ? manifest[manifest.length - 1] : null;
+        if (result.status === 200 && result.data) {
+          const summary = result.data.summary;
+          const history = result.data.history;
+          const latestUpdate = history && history.length > 0 ? history[0] : null;
 
           const indexToUpdate = updatedData.findIndex(x => x.orderId === item.orderId);
           if (indexToUpdate !== -1) {
             updatedData[indexToUpdate] = {
               ...updatedData[indexToUpdate],
-              apiStatus: deliveryData.summary.status || "ON PROCESS",
-              apiLastUpdate: latestUpdate ? `${latestUpdate.manifest_date} ${latestUpdate.manifest_time}` : new Date().toISOString().split('T')[0]
+              apiStatus: summary?.status || "ON PROCESS",
+              apiLastUpdate: latestUpdate ? latestUpdate.date : new Date().toISOString().split('T')[0]
             };
             updatedCount++;
           }
@@ -209,7 +246,7 @@ const newData: any[] = [];
 
     setReturData(updatedData);
     setIsSyncing(false);
-    alert(`Sinkronisasi selesai. ${updatedCount} resi diperbarui dari RajaOngkir.`);
+    alert(`Sinkronisasi selesai. ${updatedCount} resi diperbarui dari Binderbyte.`);
   };
 
   const handleTerimaGudang = (orderId: string) => {
@@ -225,13 +262,35 @@ const newData: any[] = [];
     }
   };
 
+  const handleExportExcel = () => {
+    if (returData.length === 0) return alert("Belum ada data untuk diekspor.");
+    
+    // Menyusun ulang data agar kolom di Excel menjadi lebih rapi dan berbahasa Indonesia
+    const exportData = returData.map(item => ({
+      "Order ID": item.orderId,
+      "Resi": item.resi,
+      "Kurir": item.kurir.toUpperCase(),
+      "Status Gudang": item.statusGudang,
+      "Tanggal Diterima": item.tglDiterima || "-",
+      "Status Ekspedisi": item.apiStatus,
+      "Update Terakhir (API)": item.apiLastUpdate
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Retur");
+    
+    // Memberikan nama file dinamis sesuai tanggal hari ini
+    XLSX.writeFile(workbook, `Laporan_Retur_Gudang_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const openDetailModal = async (item: any) => {
     setSelectedResi(item);
     setIsLoadingDetail(true);
     setTrackingDetail(null);
 
     try {
-      const res = await fetch("/api/rajaongkir", {
+      const res = await fetch("/api/binderbyte", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -247,12 +306,10 @@ const newData: any[] = [];
         return;
       }
 
-      if (result.rajaongkir) {
-        if (result.rajaongkir.status.code === 200) {
-          setTrackingDetail(result.rajaongkir.result);
-        } else {
-          alert("Ditolak RajaOngkir: " + result.rajaongkir.status.description);
-        }
+      if (result.status === 200 && result.data) {
+        setTrackingDetail(result.data);
+      } else if (result.message) {
+        alert("Ditolak Binderbyte: " + result.message);
       } else if (result.error) {
         alert("Error Backend: " + result.error);
       } else {
@@ -263,6 +320,56 @@ const newData: any[] = [];
     } finally {
       setIsLoadingDetail(false);
     }
+  };
+
+  const playSound = (type: 'success' | 'error') => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      if (type === 'success') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.15);
+      } else {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(300, ctx.currentTime);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      }
+    } catch (e) {}
+  };
+
+  const handleScanSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanInput.trim()) return;
+
+    const resiToFind = scanInput.trim().toLowerCase();
+    const index = returData.findIndex(item => item.resi.toLowerCase() === resiToFind);
+
+    if (index !== -1) {
+      const now = new Date();
+      const formattedDate = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      
+      setReturData(prev => {
+        const newData = [...prev];
+        newData[index] = { ...newData[index], statusGudang: "DITERIMA", tglDiterima: formattedDate };
+        return newData;
+      });
+      setScanMessage({ text: `Sukses: Resi ${scanInput} diterima di gudang!`, type: "success" });
+      playSound('success');
+    } else {
+      setScanMessage({ text: `Gagal: Resi ${scanInput} tidak ditemukan di data retur.`, type: "error" });
+      playSound('error');
+    }
+    
+    setScanInput("");
+    setTimeout(() => setScanMessage({ text: "", type: "" }), 3500);
   };
 
   const filteredData = useMemo(() => {
@@ -277,9 +384,41 @@ const newData: any[] = [];
       if (statusFilter === "Perjalanan") matchStatus = item.statusGudang !== "DITERIMA" && !item.apiStatus.toLowerCase().includes("menunggu");
       if (statusFilter === "Pending") matchStatus = item.statusGudang !== "DITERIMA" && item.apiStatus.toLowerCase().includes("menunggu");
 
-      return matchSearch && matchStatus;
+      let matchDate = true;
+      if (datePreset !== "Semua Waktu") {
+        const targetDateStr = item.tglDiterima || item.apiLastUpdate;
+        const itemDate = parseDateStr(targetDateStr);
+        if (!itemDate) {
+          matchDate = false;
+        } else {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const compareDate = new Date(itemDate);
+          compareDate.setHours(0, 0, 0, 0);
+
+          if (datePreset === "Hari Ini") {
+            matchDate = compareDate.getTime() === today.getTime();
+          } else if (datePreset === "7 Hari Terakhir") {
+            const sevenDaysAgo = new Date(today);
+            sevenDaysAgo.setDate(today.getDate() - 7);
+            matchDate = compareDate >= sevenDaysAgo && compareDate <= today;
+          } else if (datePreset === "30 Hari Terakhir") {
+            const thirtyDaysAgo = new Date(today);
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+            matchDate = compareDate >= thirtyDaysAgo && compareDate <= today;
+          } else if (datePreset === "Kustom" && customStartDate && customEndDate) {
+            const start = new Date(customStartDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(customEndDate);
+            end.setHours(23, 59, 59, 999);
+            matchDate = compareDate >= start && compareDate <= end;
+          }
+        }
+      }
+
+      return matchSearch && matchStatus && matchDate;
     });
-  }, [returData, globalSearch, statusFilter]);
+  }, [returData, globalSearch, statusFilter, datePreset, customStartDate, customEndDate]);
 
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -295,8 +434,8 @@ const newData: any[] = [];
   };
 
   return (
-    <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full font-sans">
-      <header className="mb-6 md:mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+    <main className="h-screen w-full flex flex-col bg-slate-50 overflow-hidden font-sans p-4 md:p-6 select-none">
+      <header className="mb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 flex-shrink-0">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <ShieldAlert className="text-orange-500" size={24} /> Dashboard Tracking Retur
@@ -305,6 +444,14 @@ const newData: any[] = [];
         </div>
         
         <div className="flex gap-3">
+          <button 
+            onClick={handleExportExcel}
+            disabled={returData.length === 0}
+            className="bg-emerald-500 text-white px-4 py-2 rounded-lg hover:bg-emerald-600 flex items-center gap-2 text-sm font-bold shadow-sm transition-colors disabled:opacity-50"
+          >
+            <Download size={16} /> Export Laporan
+          </button>
+
           <button 
             onClick={handleSyncTracking}
             disabled={isSyncing || returData.length === 0}
@@ -315,14 +462,14 @@ const newData: any[] = [];
           </button>
           
           <label className="bg-orange-500 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-orange-600 flex items-center gap-2 text-sm font-bold shadow-sm shadow-orange-200 transition-colors">
-            <Upload size={16} /> {isUploading ? "Memproses..." : "Import Excel Retur"}
+            <Upload size={16} /> {isUploading ? "Memproses..." : "Import Excel"}
             <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
           </label>
-        </div>
-      </header>
+</div>
+    </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4 flex-shrink-0">
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex justify-between items-start mb-2">
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Retur</p>
             <Box size={16} className="text-slate-400" />
@@ -363,41 +510,166 @@ const newData: any[] = [];
         </div>
       </div>
 
-      <div className="mb-4 flex flex-col md:flex-row gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex-1 relative">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Cari Resi, Order ID, atau Pembeli..." 
-            value={globalSearch}
-            onChange={(e) => { setGlobalSearch(e.target.value); setCurrentPage(1); }}
-            className="w-full pl-10 pr-4 py-2 text-sm text-slate-900 bg-slate-50 border border-transparent rounded-lg focus:bg-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
-          />
-        </div>
-        
-        <div className="relative min-w-[200px]">
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-            className="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-4 pr-10 rounded-lg focus:outline-none focus:border-indigo-500 text-sm font-medium cursor-pointer"
-          >
-            <option value="Semua Status">Semua Status</option>
-            <option value="Selesai (Gudang)">Telah Diterima Gudang</option>
-            <option value="Perjalanan">Dalam Perjalanan API</option>
-            <option value="Pending">Belum Dilacak</option>
-          </select>
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-            <ChevronDown size={16} />
+      <div className="mb-4 bg-white p-4 rounded-xl border border-indigo-200 shadow-sm bg-indigo-50/30">
+        <form onSubmit={handleScanSubmit} className="flex flex-col md:flex-row gap-3 items-center">
+          <div className="flex-1 w-full relative">
+            <ScanLine size={20} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
+            <input 
+              type="text" 
+              autoFocus
+              placeholder="Scan Barcode Resi atau Ketik Manual lalu tekan Enter..." 
+              value={scanInput}
+              onChange={(e) => setScanInput(e.target.value)}
+              className="w-full pl-11 pr-4 py-3 text-base font-bold text-slate-900 bg-white border border-indigo-300 rounded-lg focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-200 transition-all shadow-inner"
+            />
           </div>
-        </div>
+          <button type="submit" className="w-full md:w-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-md">
+            <CheckSquare size={18} /> Terima Paket
+          </button>
+        </form>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="overflow-x-auto min-h-[400px]">
-          <table className="w-full min-w-[1000px] text-left border-collapse">
-            <thead className="bg-slate-50 border-b border-slate-200">
+      {/* Floating Popup Notification */}
+      {scanMessage.text && (
+        <div className="fixed top-8 right-8 z-[100] animate-in slide-in-from-top-5 fade-in duration-300">
+          <div className={`flex items-center gap-4 px-6 py-4 rounded-xl shadow-2xl border-l-4 ${scanMessage.type === 'success' ? 'bg-white border-emerald-500' : 'bg-white border-red-500'}`}>
+            {scanMessage.type === 'success' ? (
+              <div className="bg-emerald-100 p-2 rounded-full">
+                <CheckCircle2 size={24} className="text-emerald-600" />
+              </div>
+            ) : (
+              <div className="bg-red-100 p-2 rounded-full">
+                <AlertTriangle size={24} className="text-red-600" />
+              </div>
+            )}
+            <div>
+              <h4 className="font-bold text-slate-800 text-base">
+                {scanMessage.type === 'success' ? 'Scan Berhasil!' : 'Peringatan!'}
+              </h4>
+              <p className="text-sm font-medium text-slate-600">{scanMessage.text}</p>
+            </div>
+            <button 
+              onClick={() => setScanMessage({ text: "", type: "" })} 
+              className="ml-2 p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
+<div className="mb-4 flex flex-col md:flex-row gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex-shrink-0 relative">
+      <div className="flex-1 relative">
+        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input 
+          type="text" 
+          placeholder="Cari Resi, Order ID, atau Pembeli..." 
+          value={globalSearch}
+          onChange={(e) => { setGlobalSearch(e.target.value); setCurrentPage(1); }}
+          className="w-full pl-10 pr-4 py-2 text-sm text-slate-900 bg-slate-50 border border-transparent rounded-lg focus:bg-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+        />
+      </div>
+
+      {/* Popover Date Picker */}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-sm transition-colors flex items-center gap-2 border border-slate-200 h-full min-h-[38px]"
+        >
+          <Calendar size={16} className="text-indigo-500" />
+          <span>Periode: {datePreset === "Kustom" && customStartDate ? `${customStartDate} s/d ${customEndDate || '...'}` : datePreset}</span>
+          <ChevronDown size={14} />
+        </button>
+
+        {isDatePickerOpen && (
+          <div className="absolute right-0 mt-2 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl flex flex-row overflow-hidden min-w-[420px]">
+            {/* Sidebar Preset */}
+            <div className="bg-slate-50 border-r border-slate-100 p-2 flex flex-col gap-1 w-44">
+              {["Semua Waktu", "Hari Ini", "7 Hari Terakhir", "30 Hari Terakhir", "Kustom"].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    setDatePreset(preset);
+                    if (preset !== "Kustom") {
+                      setIsDatePickerOpen(false);
+                      setCurrentPage(1);
+                    }
+                  }}
+                  className={`px-3 py-2 text-left text-xs font-bold rounded-md transition-colors ${datePreset === preset ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-200/60'}`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Input Form (Right Side) */}
+            <div className="p-4 flex flex-col gap-3 flex-1 justify-center">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Tanggal Mulai</label>
+                <input
+                  type="date"
+                  disabled={datePreset !== "Kustom"}
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-indigo-500 disabled:bg-slate-100"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Tanggal Selesai</label>
+                <input
+                  type="date"
+                  disabled={datePreset !== "Kustom"}
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:border-indigo-500 disabled:bg-slate-100"
+                />
+              </div>
+              {datePreset === "Kustom" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customStartDate && customEndDate) {
+                      setIsDatePickerOpen(false);
+                      setCurrentPage(1);
+                    } else {
+                      alert("Silakan isi kedua tanggal.");
+                    }
+                  }}
+                  className="mt-1 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 rounded-lg text-xs shadow-md transition-colors"
+                >
+                  Terapkan Filter
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="relative min-w-[200px]">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+                  className="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-4 pr-10 rounded-lg focus:outline-none focus:border-indigo-500 text-sm font-medium cursor-pointer h-full min-h-[38px]"
+                >
+                  <option value="Semua Status">Semua Status</option>
+                  <option value="Selesai (Gudang)">Telah Diterima Gudang</option>
+                  <option value="Perjalanan">Dalam Perjalanan API</option>
+                  <option value="Pending">Belum Dilacak</option>
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                  <ChevronDown size={16} />
+                </div>
+              </div>
+            </div>
+
+<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
+      <div className="overflow-auto flex-1 relative">
+        <table className="w-full min-w-[1000px] text-left border-collapse">
+          <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-20 shadow-[0_1px_0_0_rgba(226,232,240,1)]">
               <tr>
-                <th className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Order & Pembeli</th>
+                <th className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Order ID</th>
                 <th className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Resi & Kurir</th>
                 <th className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Status Expedisi (API)</th>
                 <th className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center">Status Gudang</th>
@@ -410,18 +682,19 @@ const newData: any[] = [];
                   <tr key={index} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-6 py-4">
                       <p className="text-sm font-mono font-bold text-slate-800">{item.orderId}</p>
-                      <p className="text-[12px] font-medium text-slate-500 mt-0.5 truncate max-w-[200px]">{item.buyer}</p>
                     </td>
                     <td className="px-6 py-4">
                       <p className="text-sm font-bold text-indigo-600 tracking-wide uppercase">{item.resi}</p>
                       <p className="text-[11px] font-bold text-slate-400 uppercase mt-0.5">{item.kurir}</p>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${getApiStatusBadge(item.apiStatus)}`}>
-                        {item.apiStatus}
+                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${item.statusGudang === "DITERIMA" && item.apiStatus.toLowerCase().includes("menunggu") ? getApiStatusBadge("DELIVERED") : getApiStatusBadge(item.apiStatus)}`}>
+                        {item.statusGudang === "DITERIMA" && item.apiStatus.toLowerCase().includes("menunggu") ? "DELIVERED" : item.apiStatus}
                       </span>
                       {item.apiLastUpdate !== "-" && (
-                        <p className="text-[10px] text-slate-400 mt-1.5 font-medium">Update: {item.apiLastUpdate}</p>
+                        <p className="text-[10px] text-slate-400 mt-1.5 font-medium">
+                          Update: {item.statusGudang === "DITERIMA" && item.apiStatus.toLowerCase().includes("menunggu") && item.tglDiterima ? item.tglDiterima.split(' ')[0] : item.apiLastUpdate}
+                        </p>
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
@@ -471,11 +744,11 @@ const newData: any[] = [];
                 </tr>
               )}
             </tbody>
-          </table>
-        </div>
+ </table>
+    </div>
 
-        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-sm text-slate-500 font-medium">
+    <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-col md:flex-row items-center justify-between gap-4 sticky bottom-0 z-20 shadow-[0_-1px_0_0_rgba(226,232,240,1)] flex-shrink-0">
+      <p className="text-sm text-slate-500 font-medium">
             Menampilkan {filteredData.length === 0 ? 0 : indexOfFirstItem + 1} - {Math.min(indexOfLastItem, filteredData.length)} dari {filteredData.length} retur
           </p>
           <div className="flex items-center gap-2">
@@ -537,16 +810,16 @@ const newData: any[] = [];
 
                   <h4 className="font-bold text-slate-900 mb-4 border-b border-slate-100 pb-2">Timeline Detail</h4>
                   <div className="relative border-l-2 border-slate-200 ml-3 space-y-6 pb-4">
-                    {trackingDetail.manifest && [...trackingDetail.manifest].reverse().map((hist: any, index: number) => {
+                    {trackingDetail.history && trackingDetail.history.map((hist: any, index: number) => {
                       const isFirst = index === 0;
                       return (
                         <div key={index} className="relative pl-6">
                           <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white ${isFirst ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
                           <p className={`text-[11px] font-bold mb-1 ${isFirst ? 'text-indigo-600' : 'text-slate-400'}`}>
-                            {hist.manifest_date} {hist.manifest_time}
+                            {hist.date}
                           </p>
                           <p className={`text-sm ${isFirst ? 'font-bold text-slate-800' : 'font-medium text-slate-600'}`}>
-                            {hist.manifest_description} {hist.city_name ? `(${hist.city_name})` : ''}
+                            {hist.desc} {hist.location ? `(${hist.location})` : ''}
                           </p>
                         </div>
                       )
