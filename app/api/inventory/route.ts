@@ -74,17 +74,17 @@ export async function POST(request: Request) {
       `;
       const newProductId = result[0].id;
 
-      // 2. Simpan resep pemotongan kain ke BillOfMaterials (BOM) jika diisi
-      if (resep && Array.isArray(resep)) {
-        for (const item of resep) {
-          if (item.bahan_baku_id && item.jumlah_butuh_meter) {
-            await sql`
-              INSERT INTO "BillOfMaterials" (barang_jadi_id, bahan_baku_id, jumlah_butuh_meter)
-              VALUES (${newProductId}, ${Number(item.bahan_baku_id)}, ${臨Number(item.jumlah_butuh_meter)})
-            `;
-          }
-        }
-      }
+// 2. Simpan resep pemotongan kain ke BillOfMaterials (BOM) jika diisi
+if (resep && Array.isArray(resep)) {
+  for (const item of resep) {
+    if (item.bahan_baku_id && item.jumlah_butuh_meter) {
+      await sql`
+        INSERT INTO "BillOfMaterials" (barang_jadi_id, bahan_baku_id, jumlah_butuh_meter)
+        VALUES (${newProductId}, ${Number(item.bahan_baku_id)}, ${Number(item.jumlah_butuh_meter)})
+      `;
+    }
+  }
+}
 
       return NextResponse.json({ success: true, message: "Produk baru & Resep Potongan (BOM) sukses disimpan!" });
     }
