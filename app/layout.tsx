@@ -24,9 +24,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
         <AuthProvider> {/* <-- TAMBAHAN: Bungkus dengan AuthProvider */}
           {/* Tambahan pt-16 (padding-top) khusus untuk HP (lg:pt-0 untuk PC) */}
-          <div className="flex bg-[#F8FAFC] min-h-screen">
-            <Sidebar /> 
-            <main className="flex-1 overflow-y-auto min-h-screen w-full pt-16 lg:pt-0">
+          <div className="flex bg-[#F8FAFC] min-h-screen print:bg-white">
+            <div className="print:hidden">
+              <Sidebar /> 
+            </div>
+            <main className="flex-1 overflow-y-auto min-h-screen w-full pt-16 lg:pt-0 print:pt-0 print:overflow-visible print:min-h-0 print:h-auto print:block">
               {children}
             </main>
           </div>

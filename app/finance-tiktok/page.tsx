@@ -346,6 +346,11 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
             // Artinya barang kembali/batal, jadi Modal (HPP) tidak hangus.
             const isCancelled = statusPesanan === "Batal" || statusPesanan === "Retur";
             
+            // Set Harga Modal (HPP) jadi 0 khusus untuk pesanan batal/retur
+            if (isCancelled) {
+              hppPerItem = 0;
+            }
+            
             const totalHpp = isCancelled ? 0 : (qty * hppPerItem);
             
             // GUNAKAN POTONGAN NYATA (Pendapatan - Cair) agar tabel selaras dengan Laba Bersih
@@ -457,12 +462,13 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
     setTempDateRange({ start: formatDate(start), end: formatDate(end) });
   };
 
-  // 3. KALKULASI SUMMARY METRICS KEUANGAN
+// 3. KALKULASI SUMMARY METRICS KEUANGAN
   const summaryMetrics = useMemo(() => {
     let totalRevenue = 0;
     let totalNet = 0;
     let totalHpp = 0; 
     let totalProfit = 0;
+    let totalFeesCalc = 0;
     
     // Tambahan metrik barang
     let totalQtyTerjual = 0;
@@ -470,21 +476,29 @@ const findIdx = (keys: string[]) => headers.findIndex(h => {
     let totalPesananGagal = 0;
 
     filteredFinances.forEach(item => {
-      totalRevenue += item.revenue;
-      totalNet += item.net;
-      totalHpp += (item.totalHpp || 0); 
-      totalProfit += (item.labaBersih || 0);
+      const isCancelled = item.orderStatus === "Batal" || item.orderStatus === "Retur";
       
-      if (item.orderStatus === "Batal" || item.orderStatus === "Retur") {
+      if (isCancelled) {
         totalPesananGagal += 1;
+        // Hanya hitung jika ada penalti riil
+        if (item.net < 0) {
+          totalNet += item.net;
+          totalProfit += item.net; 
+          totalFeesCalc += Math.abs(item.net); 
+        }
       } else {
+        // Pesanan sukses
         totalQtyTerjual += (item.qty || 1);
+        totalRevenue += item.revenue;
+        totalNet += item.net;
+        totalHpp += (item.totalHpp || 0); 
+        totalProfit += (item.labaBersih || 0);
+        totalFeesCalc += (item.revenue - item.net);
       }
     });
 
-    // MENGHITUNG BIAYA / POTONGAN NYATA AGAR (A - B = C) 100% AKURAT
-    // Termasuk potongan diskon penjual, penalti, dll yang disembunyikan TikTok
-    const totalFees = totalRevenue - totalNet;
+    // MENGHITUNG BIAYA / POTONGAN NYATA AGAR 100% AKURAT
+    const totalFees = totalFeesCalc;
 
     const rasioRetur = totalPesanan === 0 ? 0 : ((totalPesananGagal / totalPesanan) * 100).toFixed(1);
 

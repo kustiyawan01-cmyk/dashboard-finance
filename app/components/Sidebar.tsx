@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { useState, useEffect } from "react";
 import { 
-  LayoutDashboard, BarChart3, Calculator, LogOut, Receipt, Box, TrendingUp, Target, Truck, Menu, X, ChevronLeft, ChevronRight, ScanLine
+  LayoutDashboard, BarChart3, Calculator, LogOut, Receipt, Box, TrendingUp, Target, Truck, Menu, X, ChevronLeft, ChevronRight, ScanLine, Layers
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -50,8 +50,9 @@ export default function Sidebar() {
       ]
     },
     {
-      title: "INVENTORY & ALAT",
+      title: "INVENTORY & PRODUKSI",
       items: [
+        { name: "Bahan Baku & WO", href: "/inventory", icon: Layers },
         { name: "Master Produk", href: "/products", icon: Box },
       ]
     },
@@ -83,7 +84,7 @@ export default function Sidebar() {
   return (
     <>
       {/* --- TOP BAR KHUSUS MOBILE --- */}
-      <div className="lg:hidden fixed top-0 left-0 w-full h-16 bg-white border-b border-slate-200 z-40 flex items-center justify-between px-4 shadow-sm">
+      <div className="lg:hidden fixed top-0 left-0 w-full h-16 bg-white border-b border-slate-200 z-40 flex items-center justify-between px-4 shadow-sm print:hidden">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center">
             <TrendingUp className="text-white" size={16} />
@@ -106,7 +107,7 @@ export default function Sidebar() {
       {/* --- SIDEBAR UTAMA --- */}
       <aside className={`
         fixed lg:sticky top-0 left-0 z-50 h-screen bg-white border-r border-slate-200 flex flex-col 
-        transition-all duration-300 ease-in-out relative
+        transition-all duration-300 ease-in-out relative print:hidden
         ${isOpen ? 'translate-x-0 w-[260px]' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'lg:w-[88px]' : 'lg:w-[260px]'}
       `}>

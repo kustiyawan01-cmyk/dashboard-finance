@@ -33,3 +33,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export async function PUT(request: Request) {
+  try {
+    const { resi, status } = await request.json();
+
+    if (!resi || !status) {
+      return NextResponse.json({ error: "Resi dan status diperlukan" }, { status: 400 });
+    }
+
+    // UPDATE status di database Neon dengan nama tabel dan kolom yang TEPAT
+    // Perhatikan penggunaan tanda kutip ganda ("") karena PostgreSQL sensitif terhadap huruf kapital pada nama tabel
+    await sql`
+      UPDATE "Manifest" 
+      SET "status" = ${status} 
+      WHERE "resi" = ${resi}
+    `;
+
+    return NextResponse.json({ success: true, message: "Status berhasil diupdate permanen" });
+  } catch (error: any) {
+    console.error("Gagal update status database:", error);
+    return NextResponse.json({ error: "Terjadi kesalahan di server" }, { status: 500 });
+  }
+}
