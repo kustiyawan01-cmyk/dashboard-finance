@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { useState, useEffect } from "react";
 import { 
-  LayoutDashboard, BarChart3, Calculator, LogOut, Receipt, Box, TrendingUp, Target, Truck, Menu, X, ChevronLeft, ChevronRight, ScanLine, Layers
+  LayoutDashboard, BarChart3, Calculator, LogOut, Receipt, Box, TrendingUp, Target, Truck, Menu, X, ChevronLeft, ChevronRight, Warehouse, ScanLine, Layers
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -61,6 +61,8 @@ export default function Sidebar() {
       items: [
         { name: "Scan & Manifest", href: "/scan-manifest", icon: ScanLine },
         { name: "Lacak Retur", href: "/lacak-retur", icon: Truck },
+        { name: "Stock Opname", href: "/stock-opname", icon: Warehouse },
+        
       ]
     }
   ];

@@ -4,7 +4,19 @@ import { neon } from '@neondatabase/serverless';
 export async function GET() {
   try {
     const sql = neon(process.env.DATABASE_URL!);
-    const data = await sql`SELECT * FROM office_expenses ORDER BY tanggal DESC`;
+    const data = await sql`
+      SELECT 
+        id,
+        TO_CHAR(tanggal, 'YYYY-MM-DD') AS tanggal,
+        kategori,
+        keterangan,
+        jumlah,
+        metode_pembayaran,
+        created_at,
+        updated_at
+      FROM office_expenses
+      ORDER BY tanggal DESC, id DESC
+    `;
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json({ error: "Gagal ambil data pengeluaran" }, { status: 500 });
@@ -19,7 +31,7 @@ export async function POST(request: Request) {
     for (const item of items) {
       await sql`
         INSERT INTO office_expenses (tanggal, kategori, keterangan, jumlah, metode_pembayaran)
-        VALUES (${item.tanggal}, ${item.kategori}, ${item.keterangan}, ${item.jumlah}, ${item.metode_pembayaran})
+        VALUES (${item.tanggal}::date, ${item.kategori}, ${item.keterangan}, ${item.jumlah}, ${item.metode_pembayaran})
       `;
     }
     return NextResponse.json({ message: "Berhasil simpan pengeluaran" });
@@ -36,7 +48,7 @@ export async function PUT(request: Request) {
 
     await sql`
       UPDATE office_expenses 
-      SET tanggal = ${item.tanggal}, 
+      SET tanggal = ${item.tanggal}::date, 
           kategori = ${item.kategori}, 
           keterangan = ${item.keterangan}, 
           jumlah = ${item.jumlah}, 
