@@ -368,7 +368,7 @@ export const calculateOrderHpp = (params: {
       })),
       totalHpp: 0,
       hppPerItem: 0,
-      hppStatus: policy.status,
+      hppStatus: policy.status ?? "Dikesampingkan - Batal/Retur",
       hppMissingSkus: [],
       hppRule: policy.rule,
       isFinalProfit: true,
@@ -383,7 +383,7 @@ export const calculateOrderHpp = (params: {
     const matchedProduct = findProductCost(params.products, params.platform, item, params.orderDate || item.orderDate);
     const hpp = getCostValue(matchedProduct);
     const quantity = Number(item.quantity || 1) || 1;
-    const status = matchedProduct && hpp > 0 ? "Valid" : "Belum Mapping";
+    const status: HppItemResult["hppStatus"] = matchedProduct && hpp > 0 ? "Valid" : "Belum Mapping";
 
     if (status === "Belum Mapping") {
       missingSkus.push(item.marketplaceSku || item.skuId || item.variationId || item.productName || "SKU kosong");
