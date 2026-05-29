@@ -819,7 +819,7 @@ export default function StockOpnamePage() {
   );
 }
 
-function SummaryCard({ title, value, icon, color }: { title: string; value: string; icon: React.ReactElement; color: string }) {
+function SummaryCard({ title, value, icon, color }: { title: string; value: string; icon: React.ReactElement<{ size?: number }>; color: string }) {
   const theme: Record<string, string> = {
     blue: "bg-blue-50 text-blue-600",
     emerald: "bg-emerald-50 text-emerald-600",
