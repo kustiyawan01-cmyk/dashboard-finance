@@ -2,12 +2,16 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import type { ApexOptions } from "apexcharts";
+import * as XLSX from "xlsx";
 import {
+  AlertTriangle,
   Banknote,
   Bell,
   Briefcase,
   Calendar,
   CircleDollarSign,
+  Download,
   FileBox,
   Megaphone,
   Package,
@@ -54,6 +58,17 @@ type InternalCosts = {
   perlengkapan: number;
 };
 
+type MarketplaceSummary = {
+  marketplace: "Shopee" | "TikTok";
+  omzet: number;
+  net: number;
+  hpp: number;
+  potongan: number;
+  profit: number;
+  margin: number;
+  order: number;
+};
+
 type DashboardStats = {
   omzetShopee: number;
   omzetTikTok: number;
@@ -79,6 +94,7 @@ type DashboardStats = {
   trendData: TrendRow[];
   profitMarginData: TrendRow[];
   topOrders: TopOrderRow[];
+  lossOrders: TopOrderRow[];
   internalCosts: InternalCosts;
 };
 
@@ -107,6 +123,7 @@ const emptyStats: DashboardStats = {
   trendData: [],
   profitMarginData: [],
   topOrders: [],
+  lossOrders: [],
   internalCosts: {
     operasional: 0,
     marketing: 0,
@@ -214,6 +231,20 @@ export default function DashboardPage() {
     );
   };
 
+  const applyPresetDate = (days: number) => {
+    const end = new Date();
+    const start = new Date();
+
+    start.setDate(end.getDate() - days);
+
+    const formatDate = (date: Date) => date.toISOString().split("T")[0];
+
+    setDateRange({
+      start: formatDate(start),
+      end: formatDate(end)
+    });
+  };
+
   const handlePresetDate = (days: number) => {
     const end = new Date();
     const start = new Date();
@@ -273,6 +304,7 @@ export default function DashboardPage() {
 
         const trendMap = new Map<string, TrendRow>();
         const topOrdersList: TopOrderRow[] = [];
+        const lossOrdersList: TopOrderRow[] = [];
 
         const touchTrend = (date: string) => {
           const normalized = normalizeDate(date);
@@ -327,12 +359,15 @@ export default function DashboardPage() {
               if (String(item.hppStatus || "").toLowerCase().includes("belum")) cHppKosong += 1;
 
               if (omzet > 0) {
-                topOrdersList.push({
+                const row = {
                   name: String(item.orderId || "-"),
-                  marketplace: "Shopee",
+                  marketplace: "Shopee" as const,
                   omzet,
                   profit: laba
-                });
+                };
+
+                topOrdersList.push(row);
+                if (laba < 0) lossOrdersList.push(row);
               }
 
               const trend = touchTrend(date);
@@ -361,6 +396,7 @@ export default function DashboardPage() {
               if (nonOrderCharge) {
                 const gmvAmount = getAbs(item.fees, item.net, item.adjustment);
 
+                tNet += net;
                 tPengeluaran += gmvAmount;
                 tLaba += laba;
                 cIklan += gmvAmount;
@@ -414,12 +450,15 @@ export default function DashboardPage() {
               if (String(item.hppStatus || "").toLowerCase().includes("belum")) cHppKosong += 1;
 
               if (omzet > 0) {
-                topOrdersList.push({
+                const row = {
                   name: String(item.orderId || "-"),
-                  marketplace: "TikTok",
+                  marketplace: "TikTok" as const,
                   omzet,
                   profit: laba
-                });
+                };
+
+                topOrdersList.push(row);
+                if (laba < 0) lossOrdersList.push(row);
               }
 
               const trend = touchTrend(date);
@@ -488,6 +527,7 @@ export default function DashboardPage() {
             : [{ name: "-", shopee: 0, tiktok: 0, total: 0, profit: 0, margin: 0 }],
           profitMarginData: finalTrendData,
           topOrders: topOrdersList.sort((a, b) => b.profit - a.profit).slice(0, 5),
+          lossOrders: lossOrdersList.sort((a, b) => a.profit - b.profit).slice(0, 5),
           internalCosts: {
             operasional: op,
             marketing: mkt,
@@ -512,6 +552,7 @@ export default function DashboardPage() {
   const totalNet = stats.netShopee + stats.netTikTok;
   const totalHpp = stats.hppShopee + stats.hppTikTok;
   const totalPengeluaranMP = stats.pengeluaranShopee + stats.pengeluaranTikTok;
+
   const totalPembelianBahan = stats.internalCosts.beliBahan;
 
   const totalPengeluaranInternalOperasional =
@@ -523,10 +564,144 @@ export default function DashboardPage() {
     stats.internalCosts.perlengkapan;
 
   const totalPengeluaranAll = totalPengeluaranMP + totalPengeluaranInternalOperasional;
-  const totalLabaBersihMp = stats.labaShopee + stats.labaTikTok;
-  const trueNetProfit = totalLabaBersihMp - totalPengeluaranInternalOperasional;
+  const labaMarketplace = stats.labaShopee + stats.labaTikTok;
+  const trueNetProfit = labaMarketplace - totalPengeluaranInternalOperasional;
+  const cashflowBersih = trueNetProfit - totalPembelianBahan;
   const totalOrder = stats.orderShopee + stats.orderTikTok;
+  const marginMarketplace = totalOmzet > 0 ? (labaMarketplace / totalOmzet) * 100 : 0;
   const marginBersih = totalOmzet > 0 ? (trueNetProfit / totalOmzet) * 100 : 0;
+  const rasioPotonganMp = totalOmzet > 0 ? (totalPengeluaranMP / totalOmzet) * 100 : 0;
+  const rasioIklan = totalOmzet > 0 ? (stats.iklanPromosi / totalOmzet) * 100 : 0;
+
+  const marketplaceRows: MarketplaceSummary[] = [
+    {
+      marketplace: "Shopee",
+      omzet: stats.omzetShopee,
+      net: stats.netShopee,
+      hpp: stats.hppShopee,
+      potongan: stats.pengeluaranShopee,
+      profit: stats.labaShopee,
+      margin: stats.omzetShopee > 0 ? (stats.labaShopee / stats.omzetShopee) * 100 : 0,
+      order: stats.orderShopee
+    },
+    {
+      marketplace: "TikTok",
+      omzet: stats.omzetTikTok,
+      net: stats.netTikTok,
+      hpp: stats.hppTikTok,
+      potongan: stats.pengeluaranTikTok,
+      profit: stats.labaTikTok,
+      margin: stats.omzetTikTok > 0 ? (stats.labaTikTok / stats.omzetTikTok) * 100 : 0,
+      order: stats.orderTikTok
+    }
+  ];
+
+  const warningRows = useMemo(() => {
+    const rows: Array<{ title: string; desc: string; tone: "red" | "amber" | "green" }> = [];
+
+    if (trueNetProfit < 0) {
+      rows.push({
+        title: "Laba bersih masih negatif",
+        desc: "Cek HPP, potongan marketplace, biaya iklan, dan operasional.",
+        tone: "red"
+      });
+    }
+
+    if (marginBersih < 0) {
+      rows.push({
+        title: "Margin bersih minus",
+        desc: `Margin saat ini ${marginBersih.toFixed(1)}%.`,
+        tone: "red"
+      });
+    }
+
+    if (stats.hppKosong > 0) {
+      rows.push({
+        title: "Masih ada HPP kosong",
+        desc: `${stats.hppKosong} transaksi belum punya HPP valid.`,
+        tone: "red"
+      });
+    }
+
+    if (rasioPotonganMp > 30) {
+      rows.push({
+        title: "Potongan marketplace tinggi",
+        desc: `Potongan marketplace ${rasioPotonganMp.toFixed(1)}% dari omzet.`,
+        tone: "amber"
+      });
+    }
+
+    if (rasioIklan > 10) {
+      rows.push({
+        title: "Biaya iklan perlu dicek",
+        desc: `Biaya iklan/GMV ${rasioIklan.toFixed(1)}% dari omzet.`,
+        tone: "amber"
+      });
+    }
+
+    if (stats.returBatal > 0) {
+      rows.push({
+        title: "Retur/Batal terdeteksi",
+        desc: `${stats.returBatal} transaksi retur atau batal.`,
+        tone: "amber"
+      });
+    }
+
+    if (rows.length === 0) {
+      rows.push({
+        title: "Data aman",
+        desc: "Tidak ada warning besar pada periode ini.",
+        tone: "green"
+      });
+    }
+
+    return rows;
+  }, [trueNetProfit, marginBersih, stats.hppKosong, stats.returBatal, rasioPotonganMp, rasioIklan]);
+
+  const profitChartData = stats.profitMarginData.length > 0 ? stats.profitMarginData : stats.trendData;
+
+  const exportDashboard = () => {
+    const workbook = XLSX.utils.book_new();
+
+    const summarySheet = XLSX.utils.json_to_sheet([
+      { Metrik: "Total Omzet", Nilai: totalOmzet },
+      { Metrik: "Dana Cair", Nilai: totalNet },
+      { Metrik: "Total HPP", Nilai: totalHpp },
+      { Metrik: "Potongan Marketplace", Nilai: totalPengeluaranMP },
+      { Metrik: "Internal Operasional", Nilai: totalPengeluaranInternalOperasional },
+      { Metrik: "Beli Bahan / Stok", Nilai: totalPembelianBahan },
+      { Metrik: "Laba Marketplace", Nilai: labaMarketplace },
+      { Metrik: "Laba Bersih Bisnis", Nilai: trueNetProfit },
+      { Metrik: "Cashflow Bersih", Nilai: cashflowBersih },
+      { Metrik: "Margin Marketplace", Nilai: `${marginMarketplace.toFixed(1)}%` },
+      { Metrik: "Margin Bersih", Nilai: `${marginBersih.toFixed(1)}%` },
+      { Metrik: "Total Order", Nilai: totalOrder },
+      { Metrik: "Total Pengeluaran Semua", Nilai: totalPengeluaranAll }
+    ]);
+
+    const marketplaceSheet = XLSX.utils.json_to_sheet(marketplaceRows.map((row) => ({
+      Marketplace: row.marketplace,
+      Omzet: row.omzet,
+      "Dana Cair": row.net,
+      HPP: row.hpp,
+      Potongan: row.potongan,
+      Profit: row.profit,
+      Margin: `${row.margin.toFixed(1)}%`,
+      Order: row.order
+    })));
+
+    const warningSheet = XLSX.utils.json_to_sheet(warningRows.map((row) => ({
+      Warning: row.title,
+      Keterangan: row.desc,
+      Level: row.tone
+    })));
+
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Ringkasan");
+    XLSX.utils.book_append_sheet(workbook, marketplaceSheet, "Marketplace");
+    XLSX.utils.book_append_sheet(workbook, warningSheet, "Warning");
+
+    XLSX.writeFile(workbook, "Ringkasan_Dashboard_Finance.xlsx");
+  };
 
   const chartMarketplace = {
     series: [stats.omzetShopee, stats.omzetTikTok],
@@ -542,7 +717,7 @@ export default function DashboardPage() {
         style: { fontSize: "13px" },
         y: { formatter: (value: number) => formatRp(value) }
       }
-    } as ApexCharts.ApexOptions
+    } as ApexOptions
   };
 
   const chartTrend = {
@@ -583,20 +758,20 @@ export default function DashboardPage() {
         style: { fontSize: "13px" },
         y: { formatter: (value: number) => formatRp(value) }
       }
-    } as ApexCharts.ApexOptions
+    } as ApexOptions
   };
 
   const chartProfitMargin = {
     series: [
-      { name: "Profit Bersih", type: "column", data: stats.profitMarginData.map((item) => item.profit) },
-      { name: "Margin (%)", type: "line", data: stats.profitMarginData.map((item) => item.margin) }
+      { name: "Profit Bersih", type: "column", data: profitChartData.map((item) => item.profit) },
+      { name: "Margin (%)", type: "line", data: profitChartData.map((item) => item.margin) }
     ],
     options: {
       chart: { type: "line", toolbar: { show: false }, fontFamily: "inherit" },
       colors: ["#10B981", "#8B5CF6"],
       stroke: { width: [0, 3], curve: "smooth" },
       xaxis: {
-        categories: stats.profitMarginData.map((item) => item.name),
+        categories: profitChartData.map((item) => item.name),
         axisBorder: { show: false },
         axisTicks: { show: false },
         labels: { style: { fontSize: "12px", colors: "#94A3B8" } }
@@ -628,7 +803,7 @@ export default function DashboardPage() {
           formatter: (value: number, { seriesIndex }: any) => seriesIndex === 0 ? formatRp(value) : `${value}%`
         }
       }
-    } as ApexCharts.ApexOptions
+    } as ApexOptions
   };
 
   if (loading) {
@@ -640,14 +815,27 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen flex-1 bg-[#F8FAFC] p-8 font-sans text-slate-800">
-      <div className="mb-6 flex items-center justify-between">
+    <main className="min-h-screen flex-1 bg-[#F8FAFC] px-6 py-5 font-sans text-slate-800">
+      <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-slate-900">Dashboard</h1>
           <p className="mt-1 text-[15px] font-medium text-slate-500">Ringkasan keuangan performa toko gabungan berbasis data real</p>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <QuickButton label="Hari Ini" onClick={() => applyPresetDate(0)} />
+          <QuickButton label="7 Hari" onClick={() => applyPresetDate(7)} />
+          <QuickButton label="30 Hari" onClick={() => applyPresetDate(30)} />
+          <QuickButton label="Semua" onClick={() => setDateRange({ start: "", end: "" })} />
+
+          <button
+            onClick={exportDashboard}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+          >
+            <Download size={16} />
+            Export
+          </button>
+
           <div className="relative z-50">
             <button
               onClick={() => {
@@ -738,18 +926,20 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+      <section className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-5">
         <TopCard title="Total Omzet" value={formatRp(totalOmzet)} icon={<ShoppingBag />} iconBg="bg-blue-100" iconColor="text-blue-600" data={stats.trendData.map((item) => item.total)} stroke="#2563EB" />
         <TopCard title="Dana Cair" value={formatRp(totalNet)} icon={<Banknote />} iconBg="bg-emerald-100" iconColor="text-emerald-600" data={stats.trendData.map((item) => item.total)} stroke="#10B981" />
         <TopCard title="Total HPP" value={formatRp(totalHpp)} icon={<Package />} iconBg="bg-orange-100" iconColor="text-orange-600" data={stats.trendData.map((item) => item.total)} stroke="#F97316" />
         <TopCard title="Potongan MP" value={formatRp(totalPengeluaranMP)} icon={<Receipt />} iconBg="bg-red-100" iconColor="text-red-600" data={stats.trendData.map((item) => item.total)} stroke="#EF4444" />
-        <TopCard title="Internal Operasional" value={formatRp(totalPengeluaranInternalOperasional)} icon={<Briefcase />} iconBg="bg-amber-100" iconColor="text-amber-600" data={stats.trendData.map((item) => item.total)} stroke="#F59E0B" />
+        <TopCard title="Internal Ops" value={formatRp(totalPengeluaranInternalOperasional)} icon={<Briefcase />} iconBg="bg-amber-100" iconColor="text-amber-600" data={stats.trendData.map((item) => item.total)} stroke="#F59E0B" />
+        <TopCard title="Laba MP" value={formatRp(labaMarketplace)} icon={<CircleDollarSign />} iconBg="bg-emerald-100" iconColor="text-emerald-600" data={stats.trendData.map((item) => item.profit)} stroke={labaMarketplace < 0 ? "#EF4444" : "#10B981"} />
         <TopCard title="Laba Bersih" value={formatRp(trueNetProfit)} icon={<CircleDollarSign />} iconBg="bg-emerald-100" iconColor="text-emerald-600" data={stats.trendData.map((item) => item.profit)} stroke={trueNetProfit < 0 ? "#EF4444" : "#10B981"} isHighlight tone={trueNetProfit < 0 ? "red" : "green"} />
+        <TopCard title="Cashflow" value={formatRp(cashflowBersih)} icon={<Wallet />} iconBg="bg-violet-100" iconColor="text-violet-600" data={stats.trendData.map((item) => item.profit)} stroke={cashflowBersih < 0 ? "#EF4444" : "#8B5CF6"} />
         <TopCard title="Margin Bersih" value={`${marginBersih.toFixed(1)}%`} icon={<TrendingUp />} iconBg="bg-violet-100" iconColor="text-violet-600" data={stats.trendData.map((item) => item.margin)} stroke="#8B5CF6" />
         <TopCard title="Total Order" value={totalOrder.toLocaleString("id-ID")} icon={<Package />} iconBg="bg-slate-100" iconColor="text-slate-700" data={stats.trendData.map((item) => item.total)} stroke="#64748B" />
       </section>
 
-      <section className="mb-8">
+      <section className="mb-6">
         <h3 className="mb-4 text-[14px] font-bold uppercase tracking-wider text-slate-500">Operasional Internal & Pembelian Stok</h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4 xl:grid-cols-7">
           <MiniMetricCard label="Operasional" value={formatRp(stats.internalCosts.operasional)} icon={<Briefcase />} color="text-amber-500 bg-amber-50" />
@@ -762,10 +952,10 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div className="mb-8 flex w-full flex-col gap-6 xl:flex-row">
-        <div className="flex min-w-0 flex-1 flex-col gap-6">
-          <div className="flex flex-col gap-6 lg:flex-row">
-            <div className="flex w-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:w-1/3">
+      <div className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_410px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_1fr]">
+            <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h3 className="mb-4 text-[16px] font-bold text-slate-900">Omzet per Marketplace</h3>
               <div className="relative -mt-4 flex flex-1 items-center justify-center">
                 <ReactApexChart options={chartMarketplace.options} series={chartMarketplace.series} type="donut" height={240} />
@@ -781,7 +971,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="flex flex-1 flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-[16px] font-bold text-slate-900">Tren Omzet Berjalan</h3>
                 <div className="flex items-center gap-4 text-[12px] font-bold">
@@ -795,6 +985,8 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          <MarketplaceComparison rows={marketplaceRows} formatRp={formatRp} />
 
           <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
@@ -810,7 +1002,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <aside className="flex w-full shrink-0 flex-col gap-6 xl:w-[350px] 2xl:w-[400px]">
+        <aside className="flex w-full shrink-0 flex-col gap-6">
+          <WarningPanel warnings={warningRows} />
+
           <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="mb-6 text-[16px] font-bold text-slate-900">Rincian Potongan MP</h3>
             <div className="mt-2 flex-1 space-y-6">
@@ -822,75 +1016,46 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-8 border-t border-slate-200 pt-5">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-[13px] font-bold text-slate-500">Diskon Penjual</span>
-                <span className="text-[14px] font-black text-slate-800">{formatRp(stats.diskonPenjual)}</span>
-              </div>
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-[13px] font-bold text-slate-500">Biaya GMV / Iklan</span>
-                <span className="text-[14px] font-black text-red-600">{formatRp(stats.biayaGmv)}</span>
-              </div>
-              <div className="mb-3 flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2">
-                <span className="text-[13px] font-bold text-blue-700">Beli Bahan / Stok</span>
-                <span className="text-[14px] font-black text-blue-700">{formatRp(totalPembelianBahan)}</span>
-              </div>
-              <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+              <InfoMoneyLine label="Diskon Penjual" value={formatRp(stats.diskonPenjual)} />
+              <InfoMoneyLine label="Biaya GMV / Iklan" value={formatRp(stats.biayaGmv)} danger />
+              <InfoMoneyLine label="Beli Bahan / Stok" value={formatRp(totalPembelianBahan)} blue />
+              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
                 <span className="text-[14px] font-bold text-slate-500">Total Potongan Marketplace</span>
                 <span className="text-[16px] font-black text-red-600">-{formatRp(totalPengeluaranMP)}</span>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="mb-5 text-[16px] font-bold text-slate-900">Kontrol Data</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <StatusMini title="Retur / Batal" value={stats.returBatal} tone={stats.returBatal > 0 ? "red" : "green"} />
-              <StatusMini title="HPP Kosong" value={stats.hppKosong} tone={stats.hppKosong > 0 ? "red" : "green"} />
-              <StatusMini title="Order Shopee" value={stats.orderShopee} tone="slate" />
-              <StatusMini title="Order TikTok" value={stats.orderTikTok} tone="slate" />
-            </div>
-          </div>
+          <DataControl stats={stats} />
 
-          <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="mb-5 text-[16px] font-bold text-slate-900">Transaksi Laba Tertinggi</h3>
-            <div className="mb-4 flex justify-between border-b pb-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
-              <span className="w-1/2">Order ID</span>
-              <span className="w-1/4 text-right">Omzet</span>
-              <span className="w-1/4 text-right">Profit</span>
-            </div>
-
-            <div className="scrollbar-hide max-h-[300px] space-y-5 overflow-y-auto pr-2">
-              {stats.topOrders.length > 0 ? stats.topOrders.map((item, index) => (
-                <div key={`${item.name}-${index}`} className="flex items-center justify-between text-[13px]">
-                  <div className="flex w-1/2 items-center gap-3 pr-2">
-                    <div className={`shrink-0 rounded-lg p-2 ${item.marketplace === "Shopee" ? "bg-orange-100 text-[#EE4D2D]" : "bg-slate-100 text-slate-800"}`}>
-                      <Package size={16} />
-                    </div>
-                    <span className="truncate font-bold text-slate-700" title={item.name}>{item.name}</span>
-                  </div>
-                  <span className="w-1/4 text-right font-medium text-slate-600">{formatRp(item.omzet)}</span>
-                  <span className={`w-1/4 text-right font-black ${item.profit < 0 ? "text-red-600" : "text-emerald-600"}`}>{formatRp(item.profit)}</span>
-                </div>
-              )) : (
-                <p className="py-6 text-center text-sm font-bold text-slate-400">Belum ada transaksi profit.</p>
-              )}
-            </div>
-          </div>
+          <OrderList title="Transaksi Laba Tertinggi" items={stats.topOrders} formatRp={formatRp} empty="Belum ada transaksi profit." />
+          <OrderList title="Transaksi Rugi Terbesar" items={stats.lossOrders} formatRp={formatRp} empty="Belum ada transaksi rugi." isLoss />
         </aside>
       </div>
     </main>
   );
 }
 
+function QuickButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 shadow-sm transition-colors hover:bg-slate-900 hover:text-white"
+    >
+      {label}
+    </button>
+  );
+}
+
 function MiniMetricCard({ label, value, icon, color }: any) {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-transform duration-300 hover:-translate-y-1">
-      <div className={`shrink-0 rounded-xl p-2.5 ${color}`}>
-        {React.cloneElement(icon, { size: 18 })}
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-transform duration-300 hover:-translate-y-0.5">
+      <div className={`shrink-0 rounded-lg p-2 ${color}`}>
+        {React.cloneElement(icon, { size: 16 })}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="mb-0.5 truncate text-[10px] font-bold uppercase tracking-wider text-slate-400" title={label}>{label}</p>
-        <p className="truncate text-[15px] font-black leading-none tracking-tight text-slate-900" title={value}>{value}</p>
+        <p className="mb-0.5 truncate text-[9px] font-bold uppercase tracking-wider text-slate-400" title={label}>{label}</p>
+        <p className="truncate text-[14px] font-black leading-none tracking-tight text-slate-900" title={value}>{value}</p>
       </div>
     </div>
   );
@@ -898,38 +1063,44 @@ function MiniMetricCard({ label, value, icon, color }: any) {
 
 function TopCard({ title, value, icon, iconBg, iconColor, data, stroke, isHighlight = false, tone = "green" }: any) {
   const highlightClass = tone === "red"
-    ? "bg-red-600 border-red-700 text-white shadow-md"
-    : "bg-emerald-600 border-emerald-700 text-white shadow-md";
+    ? "border-red-600 bg-red-600 text-white shadow-sm"
+    : "border-emerald-600 bg-emerald-600 text-white shadow-sm";
 
   const sparklineOptions = {
-    chart: { type: "line", sparkline: { enabled: true }, animations: { enabled: true } },
-    stroke: { curve: "smooth", width: 2 },
+    chart: {
+      type: "line",
+      sparkline: { enabled: true },
+      animations: { enabled: true }
+    },
+    stroke: {
+      curve: "smooth",
+      width: 1.8
+    },
     colors: [stroke],
     tooltip: {
-      fixed: { enabled: false },
-      x: { show: false },
-      y: { title: { formatter: () => "" } },
-      marker: { show: false }
+      enabled: false
     }
-  } as ApexCharts.ApexOptions;
+  } as ApexOptions;
 
   return (
-    <div className={`flex min-w-0 flex-col justify-between rounded-xl border p-4 transition-shadow hover:shadow-md ${isHighlight ? highlightClass : "border-slate-200 bg-white text-slate-900 shadow-sm"}`}>
-      <div className="mb-3 flex min-w-0 items-center gap-2.5">
+    <div className={`flex min-h-[104px] min-w-0 flex-col justify-between rounded-xl border px-4 py-3 transition-all hover:-translate-y-0.5 hover:shadow-md ${isHighlight ? highlightClass : "border-slate-200 bg-white text-slate-900 shadow-sm"}`}>
+      <div className="flex items-start gap-3">
         <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${isHighlight ? "bg-white/20 text-white" : `${iconBg} ${iconColor}`}`}>
-          {React.cloneElement(icon, { size: 16 })}
+          {React.cloneElement(icon, { size: 15 })}
         </div>
-        <span className={`flex-1 truncate text-[12px] font-bold tracking-tight ${isHighlight ? "text-white/90" : "text-slate-500"}`} title={title}>
-          {title}
-        </span>
+
+        <div className="min-w-0 flex-1">
+          <p className={`truncate text-[11px] font-black leading-tight ${isHighlight ? "text-white/90" : "text-slate-500"}`} title={title}>
+            {title}
+          </p>
+          <h3 className={`mt-1.5 truncate text-[18px] font-black leading-tight tracking-tight ${isHighlight ? "text-white" : "text-slate-950"}`} title={value}>
+            {value}
+          </h3>
+        </div>
       </div>
-      <div className="min-w-0">
-        <h3 className={`mb-1.5 truncate text-[20px] font-black leading-none tracking-tight ${isHighlight ? "text-white" : "text-slate-900"}`} title={value}>
-          {value}
-        </h3>
-        <div className="h-8 w-full opacity-80">
-          <ReactApexChart options={sparklineOptions} series={[{ data }]} type="line" height={32} />
-        </div>
+
+      <div className="mt-2 h-6 w-full opacity-75">
+        <ReactApexChart options={sparklineOptions} series={[{ data }]} type="line" height={24} />
       </div>
     </div>
   );
@@ -995,6 +1166,132 @@ function StatusMini({ title, value, tone }: { title: string; value: number; tone
     <div className={`rounded-xl border p-3 ${styles[tone]}`}>
       <p className="text-[11px] font-black uppercase tracking-wider opacity-70">{title}</p>
       <p className="mt-1 text-xl font-black">{value.toLocaleString("id-ID")}</p>
+    </div>
+  );
+}
+
+function InfoMoneyLine({ label, value, danger = false, blue = false }: { label: string; value: string; danger?: boolean; blue?: boolean }) {
+  return (
+    <div className={`mb-3 flex items-center justify-between rounded-lg px-3 py-2 ${blue ? "bg-blue-50" : "bg-slate-50"}`}>
+      <span className={`text-[13px] font-bold ${blue ? "text-blue-700" : "text-slate-500"}`}>{label}</span>
+      <span className={`text-[14px] font-black ${danger ? "text-red-600" : blue ? "text-blue-700" : "text-slate-800"}`}>{value}</span>
+    </div>
+  );
+}
+
+function MarketplaceComparison({ rows, formatRp }: { rows: MarketplaceSummary[]; formatRp: (value: number) => string }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-6 py-4">
+        <h3 className="text-[16px] font-bold text-slate-900">Perbandingan Marketplace</h3>
+        <p className="mt-1 text-xs font-medium text-slate-500">Membandingkan omzet, dana cair, HPP, potongan, profit, margin, dan order.</p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[780px] text-left">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-6 py-3 text-xs font-black uppercase tracking-wider text-slate-500">Marketplace</th>
+              <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Omzet</th>
+              <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Dana Cair</th>
+              <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">HPP</th>
+              <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Potongan</th>
+              <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Profit</th>
+              <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Margin</th>
+              <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider text-slate-500">Order</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr key={row.marketplace} className="hover:bg-slate-50">
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-3 w-3 rounded-full ${row.marketplace === "Shopee" ? "bg-[#EE4D2D]" : "bg-black"}`} />
+                    <span className="text-sm font-black text-slate-800">{row.marketplace}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-right text-sm font-bold text-slate-800">{formatRp(row.omzet)}</td>
+                <td className="px-4 py-4 text-right text-sm font-bold text-emerald-700">{formatRp(row.net)}</td>
+                <td className="px-4 py-4 text-right text-sm font-bold text-orange-700">{formatRp(row.hpp)}</td>
+                <td className="px-4 py-4 text-right text-sm font-bold text-red-600">{formatRp(row.potongan)}</td>
+                <td className={`px-4 py-4 text-right text-sm font-black ${row.profit < 0 ? "text-red-600" : "text-emerald-700"}`}>{formatRp(row.profit)}</td>
+                <td className={`px-4 py-4 text-right text-sm font-black ${row.margin < 0 ? "text-red-600" : "text-emerald-700"}`}>{row.margin.toFixed(1)}%</td>
+                <td className="px-4 py-4 text-right text-sm font-black text-slate-800">{row.order.toLocaleString("id-ID")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function WarningPanel({ warnings }: { warnings: Array<{ title: string; desc: string; tone: "red" | "amber" | "green" }> }) {
+  const styles = {
+    red: "border-red-100 bg-red-50 text-red-700",
+    amber: "border-amber-100 bg-amber-50 text-amber-700",
+    green: "border-emerald-100 bg-emerald-50 text-emerald-700"
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="mb-4 flex items-center gap-2 text-[16px] font-bold text-slate-900">
+        <AlertTriangle size={18} className="text-amber-500" />
+        Warning Otomatis
+      </h3>
+
+      <div className="space-y-3">
+        {warnings.map((warning, index) => (
+          <div key={`${warning.title}-${index}`} className={`rounded-xl border p-3 ${styles[warning.tone]}`}>
+            <p className="text-sm font-black">{warning.title}</p>
+            <p className="mt-1 text-xs font-medium opacity-80">{warning.desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DataControl({ stats }: { stats: DashboardStats }) {
+  return (
+    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="mb-5 text-[16px] font-bold text-slate-900">Kontrol Data</h3>
+      <div className="grid grid-cols-2 gap-3">
+        <StatusMini title="Retur / Batal" value={stats.returBatal} tone={stats.returBatal > 0 ? "red" : "green"} />
+        <StatusMini title="HPP Kosong" value={stats.hppKosong} tone={stats.hppKosong > 0 ? "red" : "green"} />
+        <StatusMini title="Order Shopee" value={stats.orderShopee} tone="slate" />
+        <StatusMini title="Order TikTok" value={stats.orderTikTok} tone="slate" />
+      </div>
+    </div>
+  );
+}
+
+function OrderList({ title, items, formatRp, empty, isLoss = false }: { title: string; items: TopOrderRow[]; formatRp: (value: number) => string; empty: string; isLoss?: boolean }) {
+  return (
+    <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <h3 className="mb-5 text-[16px] font-bold text-slate-900">{title}</h3>
+      <div className="mb-4 flex justify-between border-b pb-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
+        <span className="w-1/2">Order ID</span>
+        <span className="w-1/4 text-right">Omzet</span>
+        <span className="w-1/4 text-right">Profit</span>
+      </div>
+
+      <div className="scrollbar-hide max-h-[300px] space-y-5 overflow-y-auto pr-2">
+        {items.length > 0 ? items.map((item, index) => (
+          <div key={`${item.name}-${index}-${title}`} className="flex items-center justify-between text-[13px]">
+            <div className="flex w-1/2 items-center gap-3 pr-2">
+              <div className={`shrink-0 rounded-lg p-2 ${item.marketplace === "Shopee" ? "bg-orange-100 text-[#EE4D2D]" : "bg-slate-100 text-slate-800"}`}>
+                <Package size={16} />
+              </div>
+              <span className="truncate font-bold text-slate-700" title={item.name}>{item.name}</span>
+            </div>
+            <span className="w-1/4 text-right font-medium text-slate-600">{formatRp(item.omzet)}</span>
+            <span className={`w-1/4 text-right font-black ${item.profit < 0 || isLoss ? "text-red-600" : "text-emerald-600"}`}>{formatRp(item.profit)}</span>
+          </div>
+        )) : (
+          <p className="py-6 text-center text-sm font-bold text-slate-400">{empty}</p>
+        )}
+      </div>
     </div>
   );
 }
