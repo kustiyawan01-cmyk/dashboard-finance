@@ -104,10 +104,12 @@ export default function Sidebar() {
         />
       )}
 
+      <div className={`hidden lg:block shrink-0 transition-all duration-300 ease-in-out ${isCollapsed ? 'w-[88px]' : 'w-[260px]'}`} />
+
       {/* --- SIDEBAR UTAMA --- */}
       <aside className={`
-        fixed lg:sticky top-0 left-0 z-50 h-screen bg-white border-r border-slate-200 flex flex-col 
-        transition-all duration-300 ease-in-out relative print:hidden
+        fixed top-0 left-0 z-50 h-screen bg-white border-r border-slate-200 flex flex-col 
+        transition-all duration-300 ease-in-out print:hidden
         ${isOpen ? 'translate-x-0 w-[260px]' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'lg:w-[88px]' : 'lg:w-[260px]'}
       `}>

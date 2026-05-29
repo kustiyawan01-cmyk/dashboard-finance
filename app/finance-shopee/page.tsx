@@ -1,695 +1,1028 @@
 "use client";
 
-import { useAuth } from "@/app/context/AuthContext";
-import { useState, useEffect, useMemo } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
-import { 
-  LayoutDashboard, Upload, BarChart3, Settings, 
-  Table as TableIcon, ChevronLeft, ChevronRight, CheckCircle2,
-  WalletCards, TrendingDown, CircleDollarSign, ArrowUpDown, ArrowUp, ArrowDown,
-  Eye, X, Search, Calendar, Save, Check, ShoppingBag, Download, Receipt, TrendingUp,
-  Megaphone, Users, Truck, Box, Percent, Wallet, Lock, Package
-} from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Download, Eye, Save, Search, Upload, WalletCards, X } from "lucide-react";
+import toast from "react-hot-toast";
+import { calculateOrderHpp, cleanOrderId, formatDateDisplay, formatRupiah, parseCurrency, toISODate, type ProductCostRow, type SalesItem } from "@/app/lib/marketplaceFinance";
+import { useAuth } from "@/app/context/AuthContext";
+
+type FinanceRow = {
+  platform: "Shopee";
+  orderId: string;
+  orderStatus: string;
+  createdDate: string;
+  date: string;
+  qty: number;
+  productName: string;
+  sku: string;
+  revenue: number;
+  subtotal: number;
+  net: number;
+  fees: number;
+  hppPerItem: number;
+  totalHpp: number;
+  labaBersih: number;
+  hppStatus: "Valid" | "Belum Mapping" | "Dikesampingkan - Batal/Retur";
+  hppMissingSkus: string[];
+  hppRule: string;
+  isFinalProfit: boolean;
+  orderItems: unknown[];
+  shippingBuyer?: number;
+  shippingSubsidy?: number;
+  adjustment?: number;
+  sellerDiscount?: number;
+  platformFee?: number;
+  paymentFee?: number;
+  affiliateFee?: number;
+  freeShippingFee?: number;
+  tax?: number;
+  codFee?: number;
+  hargaProduk?: number;
+  ongkirPembeli?: number;
+  subsidiOngkir?: number;
+  voucherShopee?: number;
+  cashbackShopee?: number;
+  penyesuaianSaldo?: number;
+  codPembeli?: number;
+  kompensasi?: number;
+  admin?: number;
+  layanan?: number;
+  ongkirXtra?: number;
+  cashbackXtra?: number;
+  ams?: number;
+  komisiAffiliate?: number;
+  pajak?: number;
+  biayaCod?: number;
+  voucherPenjual?: number;
+  cashbackPenjual?: number;
+  shopeeAds?: number;
+  penalti?: number;
+  refund?: number;
+  retur?: number;
+  transfer?: number;
+  materai?: number;
+  penyesuaianSistem?: number;
+  rawData?: unknown;
+};
 
 export default function FinanceShopeePage() {
   const { user } = useAuth();
-  const [finances, setFinances] = useState<any[]>([]);
+  const [finances, setFinances] = useState<FinanceRow[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesItem[]>([]);
+  const [products, setProducts] = useState<ProductCostRow[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // STATE UNTUK MENAMPUNG DATA PENJUALAN & PRODUK (Untuk tarik QTY, SKU & HPP)
-  const [salesOrders, setSalesOrders] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-
-  // STATE FILTER & PAGINATION
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(50);
-  // Default langsung diurutkan berdasarkan Tanggal Selesai (date) dari yang Paling Baru (desc)
-  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({ key: 'date', direction: 'desc' });
-  
   const [globalSearch, setGlobalSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Semua Status");
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [tempDateRange, setTempDateRange] = useState({ start: '', end: '' });
-  
-  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [hppFilter, setHppFilter] = useState("Semua HPP");
+  const [dateRange, setDateRange] = useState({ start: "", end: "" });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [selectedOrder, setSelectedOrder] = useState<FinanceRow | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof FinanceRow; direction: "asc" | "desc" } | null>({ key: "date", direction: "desc" });
 
-  // --- FETCH DATA AWAL ---
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Tarik Penjualan Shopee (Untuk QTY & SKU)
-        const resSales = await fetch('/api/shopee');
-        if (resSales.ok) setSalesOrders(await resSales.json());
-
-        // Tarik Database Finance Shopee
-        const resFinance = await fetch('/api/finance-shopee');
-        if (resFinance.ok) setFinances(await resFinance.json());
-
-        // Tarik Master Produk (Untuk HPP)
-        const resProducts = await fetch('/api/products');
-        if (resProducts.ok) setProducts(await resProducts.json());
-      } catch (error) {
-        console.error("Gagal menarik data", error);
+  const fetchData = async () => {
+    try {
+      const [salesRes, financeRes, productRes] = await Promise.all([
+        fetch("/api/shopee"),
+        fetch("/api/finance-shopee"),
+        fetch("/api/products"),
+      ]);
+      if (salesRes.ok) setSalesOrders(await salesRes.json());
+      if (financeRes.ok) {
+        const data = await financeRes.json();
+        setFinances(Array.isArray(data) ? data : []);
       }
-    };
+      if (productRes.ok) setProducts(await productRes.json());
+    } catch {
+      toast.error("Gagal mengambil data Shopee / master produk.");
+    }
+  };
+
+  useEffect(() => {
     fetchData();
   }, []);
 
-  // --- FUNGSI UPLOAD EXCEL SHOPEE (SANGAT TANGGUH) ---
-  const handleFileUpload = (e: any) => {
-    const file = e.target.files[0];
+  const isSameOrderId = (left: unknown, right: unknown) => {
+    const leftRaw = String(left || "").trim();
+    const rightRaw = String(right || "").trim();
+    const leftClean = cleanOrderId(leftRaw);
+    const rightClean = cleanOrderId(rightRaw);
+    return leftRaw === rightRaw || (leftClean !== "" && rightClean !== "" && leftClean === rightClean);
+  };
+
+  const getProductsForHpp = () => {
+    const targetPlatform = "Shopee";
+    const normalizedTarget = targetPlatform.toLowerCase();
+
+    return products.flatMap((item) => {
+      const row = item as any;
+      const productPlatforms = Array.isArray(row.platforms) ? row.platforms.map((platform: unknown) => String(platform || "").toLowerCase()) : [];
+      const productPlatform = String(row.platform || "").toLowerCase();
+      const sku = String(row.sku || row.internalSku || row.marketplaceSku || row.marketplaceSkuId || row.marketplaceVariationId || "").trim();
+      const alreadyTarget = productPlatform === normalizedTarget || productPlatforms.includes(normalizedTarget);
+      const isInternal = !productPlatform || productPlatform === "internal" || productPlatforms.includes("internal");
+
+      const baseItem = {
+        ...row,
+        sku: row.sku || sku,
+        internalSku: row.internalSku || sku,
+        marketplaceSku: row.marketplaceSku || sku,
+        marketplaceSkuId: row.marketplaceSkuId || sku,
+        marketplaceVariationId: row.marketplaceVariationId || sku
+      } as ProductCostRow;
+
+      if (alreadyTarget) return [baseItem];
+      if (!isInternal) return [baseItem];
+
+      return [
+        baseItem,
+        {
+          ...baseItem,
+          platform: targetPlatform,
+          platforms: Array.from(new Set([...(Array.isArray(row.platforms) ? row.platforms : []), targetPlatform]))
+        } as ProductCostRow
+      ];
+    });
+  };
+
+  const hydrateDetailOrder = (item: FinanceRow): FinanceRow => {
+    const matchedSalesItems = salesOrders.filter((sales: any) => {
+      const salesOrderId = sales.orderId || sales.order_id || sales.noPesanan || sales.no_pesanan || sales.idPesanan || sales.id_pesanan;
+      return isSameOrderId(salesOrderId, item.orderId);
+    });
+
+    const sourceItems = matchedSalesItems.length > 0
+      ? matchedSalesItems
+      : Array.isArray(item.orderItems)
+        ? item.orderItems
+        : [];
+
+    const detailItems = sourceItems.map((row: any) => ({
+      ...row,
+      productName: String(row.productName || row.product_name || row.namaProduk || row.nama_produk || row.name || item.productName || "").trim(),
+      sku: String(row.marketplaceSku || row.sku || row.sellerSku || row.seller_sku || row.skuId || row.sku_id || item.sku || "").trim(),
+      quantity: Number(row.quantity || row.qty || row.jumlah || 1) || 1,
+      hppPerItem: Number(row.hppPerItem || row.hpp_per_item || 0) || 0,
+      totalHpp: Number(row.totalHpp || row.total_hpp || 0) || 0
+    }));
+
+    const productNames = Array.from(new Set(detailItems.map((row: any) => String(row.productName || "").trim()).filter((value) => value && value !== "-")));
+    const skus = Array.from(new Set(detailItems.map((row: any) => String(row.sku || "").trim()).filter((value) => value && value !== "-")));
+
+    return {
+      ...item,
+      productName: productNames.length > 0 ? productNames.join(", ") : (item.productName && item.productName !== "-" ? item.productName : "Tidak Diketahui"),
+      sku: skus.length > 0 ? skus.join(", ") : (item.sku && item.sku !== "-" ? item.sku : "-"),
+      orderItems: detailItems.length > 0 ? detailItems : item.orderItems
+    };
+  };
+
+  const rowsFromWorkbook = (workbook: XLSX.WorkBook) => {
+    const allRows: unknown[][] = [];
+    workbook.SheetNames.forEach((sheetName) => {
+      const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" }) as unknown[][];
+      allRows.push(...sheetRows);
+    });
+    return allRows;
+  };
+
+  const findHeader = (rows: unknown[][]) => {
+    for (let i = 0; i < Math.min(rows.length, 60); i++) {
+      const text = String((rows[i] || []).join(" ")).toLowerCase().replace(/[^a-z0-9]/g, "");
+      if ((text.includes("nopesanan") || text.includes("orderid")) && (text.includes("totalpenghasilan") || text.includes("danadilepaskan") || text.includes("biayaadministrasi"))) return i;
+    }
+    return -1;
+  };
+
+  const normalizeHeader = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const findIdx = (headers: string[], names: string[]) => headers.findIndex((header) => names.some((name) => normalizeHeader(header) === normalizeHeader(name) || normalizeHeader(header).includes(normalizeHeader(name))));
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
 
     const reader = new FileReader();
-    reader.onload = (evt: any) => {
+    reader.onload = async (event) => {
       try {
-        const data = new Uint8Array(evt.target.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
-        
-        // Cari sheet Income / Laporan Penghasilan
-        const wsname = wb.SheetNames.find(name => name.toLowerCase().includes('income') || name.toLowerCase().includes('penghasilan')) || wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, raw: false, defval: "" });
+        const workbook = XLSX.read(event.target?.result, { type: "binary" });
+        const rows = rowsFromWorkbook(workbook);
+        const headerIdx = findHeader(rows);
+        if (headerIdx === -1) throw new Error("Header finance Shopee tidak ditemukan.");
 
-        // Cari Baris Header Asli
-        let headerIdx = -1;
-        for (let i = 0; i < Math.min(20, rows.length); i++) {
-          const rowStr = rows[i].join("|").toLowerCase();
-          if (rowStr.includes("no. pesanan") || rowStr.includes("order id")) {
-            headerIdx = i; break;
-          }
-        }
+        const headers = (rows[headerIdx] || []).map((item) => String(item || "").trim());
+        const iID = findIdx(headers, ["no. pesanan", "no pesanan", "order id", "id pesanan"]);
+        const iStatus = findIdx(headers, ["status", "status pesanan"]);
+        const iRevenue = findIdx(headers, ["harga asli produk", "total harga produk", "harga produk", "total pembayaran"]);
+        const iNet = findIdx(headers, ["total penghasilan", "dana dilepaskan", "jumlah dana dilepaskan"]);
+        const iFee = findIdx(headers, ["biaya administrasi", "biaya layanan", "total biaya", "biaya platform"]);
+        const iOngkirPembeli = findIdx(headers, ["ongkir dibayar pembeli"]);
+        const iSubsidiOngkir = findIdx(headers, ["gratis ongkir dari shopee", "subsidi ongkos kirim shopee", "diskon ongkir ditanggung jasa kirim"]);
+        const iVoucherShopee = findIdx(headers, ["diskon produk dari shopee", "voucher ditanggung shopee"]);
+        const iCashbackShopee = findIdx(headers, ["cashback shopee"]);
+        const iPenyesuaianSaldo = findIdx(headers, ["penyesuaian saldo"]);
+        const iCodPembeli = findIdx(headers, ["biaya cod dibayar pembeli"]);
+        const iKompensasi = findIdx(headers, ["kompensasi shopee", "kompensasi"]);
+        const iAdmin = findIdx(headers, ["biaya administrasi"]);
+        const iLayanan = findIdx(headers, ["biaya layanan"]);
+        const iOngkirXtra = findIdx(headers, ["biaya program hemat biaya kirim", "biaya program gratis ongkir xtra"]);
+        const iCashbackXtra = findIdx(headers, ["biaya kampanye", "biaya cashback xtra"]);
+        const iAms = findIdx(headers, ["biaya komisi ams", "biaya affiliate marketing solution"]);
+        const iKomisiAffiliate = findIdx(headers, ["komisi shopee affiliate"]);
+        const iPajak = findIdx(headers, ["bea masuk, ppn & pph", "pajak"]);
+        const iBiayaCod = findIdx(headers, ["biaya cod", "biaya penanganan"]);
+        const iVoucherPenjual = findIdx(headers, ["voucher disponsori oleh penjual", "voucher ditanggung penjual", "total diskon produk"]);
+        const iCashbackPenjual = findIdx(headers, ["cashback koin co-fund disponsori penjual", "cashback ditanggung penjual"]);
+        const iShopeeAds = findIdx(headers, ["biaya iklan", "shopee ads"]);
+        const iPenalti = findIdx(headers, ["penalti", "denda"]);
+        const iRetur = findIdx(headers, ["ongkos kirim pengembalian barang", "retur barang"]);
+        const iTransfer = findIdx(headers, ["biaya transfer"]);
+        const iMaterai = findIdx(headers, ["biaya materai"]);
+        const iPenyesuaianSistem = findIdx(headers, ["penyesuaian sistem"]);
+        const iDate = findIdx(headers, ["tanggal dana dilepaskan", "waktu penyelesaian", "tanggal penyelesaian"]);
+        const iCreatedDate = findIdx(headers, ["waktu pesanan dibuat", "tanggal pesanan dibuat", "order created time"]);
+        const iSubtotal = findIdx(headers, ["harga asli produk", "total pembayaran", "subtotal produk"]);
+        const iSku = findIdx(headers, ["nomor referensi sku", "sku referensi", "seller sku", "sku penjual", "sku"]);
+        const iQty = findIdx(headers, ["jumlah", "quantity", "qty"]);
+        const iName = findIdx(headers, ["nama produk", "product name", "item name", "nama barang"]);
+        const iRefund = findIdx(headers, ["jumlah pengembalian dana ke pembeli", "refund pembeli", "retur", "pengembalian"]);
 
-        if (headerIdx === -1) {
-           alert("Gagal menemukan kolom 'No. Pesanan'. Pastikan ini laporan Penghasilan Shopee yang benar.");
-           setIsUploading(false); return; 
-        }
+        if (iID === -1 || iNet === -1) throw new Error("File ini bukan laporan Penghasilan Shopee yang valid.");
 
-        const headers = Array.from(rows[headerIdx] || []).map(h => String(h || "").trim().toLowerCase());
-        
-        // Perbaikan Logika: Utamakan kecocokan nama persis agar tidak tertukar dengan kolom Tanggal
-        const findIdx = (keys: string[]) => {
-          let idx = headers.findIndex(h => keys.includes(h)); 
-          if (idx === -1) {
-            idx = headers.findIndex(h => keys.some(k => h.includes(k)));
-          }
-          return idx;
-        };
-
-        // MAPPING KOLOM SHOPEE
-        const iID = findIdx(['no. pesanan', 'order id']);
-        const iStatus = findIdx(['status']);
-        const iCreatedDate = findIdx(['waktu pesanan dibuat']);
-        const iDate = findIdx(['tanggal dana dilepaskan', 'waktu penyelesaian']);
-        
-        // MAPPING PEMASUKAN SHOPEE
-        const iHargaAsli = findIdx(['harga asli produk']);
-        const iOngkirPembeli = findIdx(['ongkir dibayar pembeli']);
-        const iSubsidiOngkir = findIdx(['gratis ongkir dari shopee', 'subsidi ongkos kirim shopee', 'diskon ongkir ditanggung jasa kirim']);
-        const iVoucherShopee = findIdx(['diskon produk dari shopee', 'voucher ditanggung shopee']);
-        const iCashbackShopee = findIdx(['cashback shopee']);
-        const iPenyesuaianSaldo = findIdx(['penyesuaian saldo']);
-        const iCodPembeli = findIdx(['biaya cod dibayar pembeli']);
-        const iKompensasi = findIdx(['kompensasi shopee', 'kompensasi']);
-        const iDanaDiterima = findIdx(['total penghasilan', 'dana dilepaskan']);
-
-        // MAPPING POTONGAN SHOPEE
-        const iAdmin = findIdx(['biaya administrasi']);
-        const iLayanan = findIdx(['biaya layanan']);
-        const iOngkirXtra = findIdx(['biaya program hemat biaya kirim', 'biaya program gratis ongkir xtra']);
-        const iCashbackXtra = findIdx(['biaya kampanye', 'biaya cashback xtra']);
-        const iAms = findIdx(['biaya komisi ams', 'biaya affiliate marketing solution']);
-        const iKomisiAffiliate = findIdx(['komisi shopee affiliate']);
-        const iPajak = findIdx(['bea masuk, ppn & pph', 'pajak']);
-        const iBiayaCod = findIdx(['biaya cod', 'biaya penanganan']);
-        const iVoucherPenjual = findIdx(['voucher disponsori oleh penjual', 'voucher ditanggung penjual', 'total diskon produk']);
-        const iCashbackPenjual = findIdx(['cashback koin co-fund disponsori penjual', 'cashback ditanggung penjual']);
-        const iShopeeAds = findIdx(['biaya iklan', 'shopee ads']);
-        const iPenalti = findIdx(['penalti', 'denda']);
-        const iRefund = findIdx(['jumlah pengembalian dana ke pembeli', 'refund pembeli']);
-        const iRetur = findIdx(['ongkos kirim pengembalian barang', 'retur barang']);
-        const iTransfer = findIdx(['biaya transfer']);
-        const iMaterai = findIdx(['biaya materai']);
-        const iPenyesuaianSistem = findIdx(['penyesuaian sistem']);
-
-        let finalData: any[] = [];
-
+        const finalData: FinanceRow[] = [];
         for (let i = headerIdx + 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (!row || !row[iID]) continue;
+          const row = rows[i] || [];
+          const orderId = cleanOrderId(row[iID]);
+          if (!orderId || orderId.length < 6) continue;
 
-          let cleanID = String(row[iID]).trim(); 
-          if (cleanID.length < 5) continue;
+          const revenue = parseCurrency(row[iRevenue]);
+          const net = parseCurrency(row[iNet]);
+          const rawFee = Math.abs(parseCurrency(row[iFee]));
+          const ongkirPembeli = parseCurrency(row[iOngkirPembeli]);
+          const subsidiOngkir = parseCurrency(row[iSubsidiOngkir]);
+          const voucherShopee = parseCurrency(row[iVoucherShopee]);
+          const cashbackShopee = parseCurrency(row[iCashbackShopee]);
+          const penyesuaianSaldo = parseCurrency(row[iPenyesuaianSaldo]);
+          const codPembeli = parseCurrency(row[iCodPembeli]);
+          const kompensasi = parseCurrency(row[iKompensasi]);
+          const admin = Math.abs(parseCurrency(row[iAdmin]));
+          const layanan = Math.abs(parseCurrency(row[iLayanan]));
+          const ongkirXtra = Math.abs(parseCurrency(row[iOngkirXtra]));
+          const cashbackXtra = Math.abs(parseCurrency(row[iCashbackXtra]));
+          const ams = Math.abs(parseCurrency(row[iAms]));
+          const komisiAffiliate = Math.abs(parseCurrency(row[iKomisiAffiliate]));
+          const pajak = Math.abs(parseCurrency(row[iPajak]));
+          const biayaCod = Math.abs(parseCurrency(row[iBiayaCod]));
+          const voucherPenjual = Math.abs(parseCurrency(row[iVoucherPenjual]));
+          const cashbackPenjual = Math.abs(parseCurrency(row[iCashbackPenjual]));
+          const shopeeAds = Math.abs(parseCurrency(row[iShopeeAds]));
+          const penalti = Math.abs(parseCurrency(row[iPenalti]));
+          const retur = Math.abs(parseCurrency(row[iRetur]));
+          const transfer = Math.abs(parseCurrency(row[iTransfer]));
+          const materai = Math.abs(parseCurrency(row[iMaterai]));
+          const penyesuaianSistem = Math.abs(parseCurrency(row[iPenyesuaianSistem]));
+          const date = String(row[iDate] || "-").trim();
+          const createdDate = String(row[iCreatedDate] || date || "-").trim();
+          const subtotal = parseCurrency(row[iSubtotal]);
+          const sku = String(row[iSku] || "").trim();
+          const qty = Number(row[iQty] || 1) || 1;
+          const productName = String(row[iName] || "-").trim();
+          const refundAmount = Math.abs(parseCurrency(row[iRefund]));
 
-          const cleanNum = (val: any) => {
-            if (!val) return 0;
-            let s = String(val).replace(/[^0-9.-]+/g, "");
-            const num = parseFloat(s);
-            return isNaN(num) ? 0 : Math.round(num);
-          };
+          let status = String(row[iStatus] || "Selesai");
+          const matchingSales = salesOrders.find((item) => cleanOrderId(item.orderId || item.order_id || item.noPesanan || item.no_pesanan) === orderId);
+          if (refundAmount > 0) status = "Retur / Refund";
+          else if (net === 0 && revenue === 0 && rawFee === 0) status = "Batal";
+          else if (matchingSales?.status) status = String(matchingSales.status);
 
-          // TARIK DATA PRODUK DARI SALES
-          const matchingSales = salesOrders.find((s: any) => String(s.orderId || s.order_id).trim() === cleanID);
-          let qty = matchingSales?.quantity || matchingSales?.qty || 1;
-          let sku = matchingSales?.sku || matchingSales?.sku_produk || null;
-          let productName = matchingSales?.productName || matchingSales?.nama_produk || "Produk Shopee";
+          const hpp = calculateOrderHpp({
+            salesOrders,
+            products: getProductsForHpp(),
+            platform: "Shopee",
+            orderId,
+            orderDate: toISODate(createdDate || date),
+            status,
+            net,
+            refundAmount,
+            fallback: { orderId, orderDate: createdDate, productName, marketplaceSku: sku, skuId: sku, quantity: qty, itemAmount: subtotal, status },
+          });
 
-          // TARIK HPP DARI MASTER PRODUK
-          let hppPerItem = 0;
-          if (sku) {
-            const matchProd = products.find(p => String(p.sku).toLowerCase() === String(sku).toLowerCase());
-            if (matchProd) hppPerItem = cleanNum(matchProd.hargaModal || matchProd.hpp);
-          }
-          if (hppPerItem === 0 && productName) {
-            const matchProdName = products.find(p => String(p.name || p.nama).toLowerCase() === String(productName).toLowerCase());
-            if (matchProdName) hppPerItem = cleanNum(matchProdName.hargaModal || matchProdName.hpp);
-          }
-
-          // PEMASUKAN
-          const hargaProduk = cleanNum(row[iHargaAsli]);
-          const ongkirPembeli = cleanNum(row[iOngkirPembeli]);
-          const subsidiOngkir = cleanNum(row[iSubsidiOngkir]);
-          const voucherShopee = cleanNum(row[iVoucherShopee]);
-          const cashbackShopee = cleanNum(row[iCashbackShopee]);
-          const penyesuaianSaldo = cleanNum(row[iPenyesuaianSaldo]);
-          const codPembeli = cleanNum(row[iCodPembeli]);
-          const kompensasi = cleanNum(row[iKompensasi]);
-          const danaDiterima = cleanNum(row[iDanaDiterima]); // Ini NETT
-
-          // POTONGAN
-          const admin = Math.abs(cleanNum(row[iAdmin]));
-          const layanan = Math.abs(cleanNum(row[iLayanan]));
-          const ongkirXtra = Math.abs(cleanNum(row[iOngkirXtra]));
-          const cashbackXtra = Math.abs(cleanNum(row[iCashbackXtra]));
-          const ams = Math.abs(cleanNum(row[iAms]));
-          const komisiAffiliate = Math.abs(cleanNum(row[iKomisiAffiliate]));
-          const pajak = Math.abs(cleanNum(row[iPajak]));
-          const biayaCod = Math.abs(cleanNum(row[iBiayaCod]));
-          const voucherPenjual = Math.abs(cleanNum(row[iVoucherPenjual]));
-          const cashbackPenjual = Math.abs(cleanNum(row[iCashbackPenjual]));
-          const shopeeAds = Math.abs(cleanNum(row[iShopeeAds]));
-          const penalti = Math.abs(cleanNum(row[iPenalti]));
-          const refund = Math.abs(cleanNum(row[iRefund]));
-          const retur = Math.abs(cleanNum(row[iRetur]));
-          const transfer = Math.abs(cleanNum(row[iTransfer]));
-          const materai = Math.abs(cleanNum(row[iMaterai]));
-          const penyesuaianSistem = Math.abs(cleanNum(row[iPenyesuaianSistem]));
-
-          const totalPotongan = admin + layanan + ongkirXtra + cashbackXtra + ams + komisiAffiliate + pajak + biayaCod + voucherPenjual + cashbackPenjual + shopeeAds + penalti + refund + retur + transfer + materai + penyesuaianSistem;
-          
-          let statusPesanan = String(row[iStatus] || matchingSales?.status || "Selesai");
-          if (refund > 0 || retur > 0) statusPesanan = "Retur / Refund";
-
-          const isCancelled = statusPesanan.toLowerCase().includes("batal");
-          const totalHpp = isCancelled ? 0 : (qty * hppPerItem);
-          const labaBersih = isCancelled ? 0 : (danaDiterima - totalHpp);
+          const finalFees = hpp.hppStatus === "Dikesampingkan - Batal/Retur" ? 0 : (revenue - net || rawFee);
+          const labaBersih = hpp.isFinalProfit ? net - hpp.totalHpp : 0;
+          const totalQty = hpp.orderItems.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0) || qty;
 
           finalData.push({
-            orderId: cleanID, orderStatus: statusPesanan, 
-            createdDate: String(row[iCreatedDate] || "-"), date: String(row[iDate] || "-"), 
-            qty, sku, productName, hppPerItem, totalHpp, 
-            net: danaDiterima, labaBersih,
-            
-            // Simpan Pemasukan
-            hargaProduk, ongkirPembeli, subsidiOngkir, voucherShopee, cashbackShopee, 
-            penyesuaianSaldo, codPembeli, kompensasi,
-            
-            // Simpan Potongan
-            admin, layanan, ongkirXtra, cashbackXtra, ams, komisiAffiliate, pajak, biayaCod,
-            voucherPenjual, cashbackPenjual, shopeeAds, penalti, refund, retur, transfer, materai, penyesuaianSistem,
-            fees: totalPotongan
+            platform: "Shopee",
+            orderId,
+            orderStatus: status,
+            createdDate,
+            date,
+            qty: totalQty,
+            productName,
+            sku,
+            revenue,
+            subtotal,
+            net,
+            fees: finalFees,
+            hargaProduk: revenue,
+            ongkirPembeli,
+            subsidiOngkir,
+            voucherShopee,
+            cashbackShopee,
+            penyesuaianSaldo,
+            codPembeli,
+            kompensasi,
+            admin,
+            layanan,
+            ongkirXtra,
+            cashbackXtra,
+            ams,
+            komisiAffiliate,
+            pajak,
+            biayaCod,
+            voucherPenjual,
+            cashbackPenjual,
+            shopeeAds,
+            penalti,
+            refund: refundAmount,
+            retur,
+            transfer,
+            materai,
+            penyesuaianSistem,
+            hppPerItem: hpp.hppPerItem,
+            totalHpp: hpp.totalHpp,
+            labaBersih,
+            hppStatus: hpp.hppStatus,
+            hppMissingSkus: hpp.hppMissingSkus,
+            hppRule: hpp.hppRule,
+            isFinalProfit: hpp.isFinalProfit,
+            orderItems: hpp.orderItems,
+            rawData: Object.fromEntries(headers.map((header, idx) => [header, row[idx]])),
           });
         }
 
-        if (finalData.length === 0) alert("Data kosong / Format Excel tidak sesuai.");
-        else setFinances(finalData);
-
+        if (finalData.length === 0) throw new Error("Tidak ada data finance Shopee valid.");
+        setFinances((prev) => {
+          const map = new Map<string, FinanceRow>();
+          [...prev, ...finalData].forEach((item) => map.set(item.orderId, item));
+          return Array.from(map.values());
+        });
+        const missing = finalData.filter((item) => item.hppStatus === "Belum Mapping").length;
+        if (missing > 0) toast.error(`${missing} transaksi HPP belum mapping. Lengkapi Master HPP dulu.`);
+        else toast.success("Finance Shopee berhasil dibaca dan HPP valid.");
+      } catch (error) {
+        console.error(error);
+        toast.error("Gagal membaca file. Upload laporan Penghasilan Shopee, bukan laporan pesanan.");
+      } finally {
         setIsUploading(false);
-      } catch (err) {
-        console.error(err);
-        alert("Gagal membaca file.");
-        setIsUploading(false);
+        e.target.value = "";
       }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsBinaryString(file);
   };
 
   const handleSaveToDatabase = async () => {
-    if (finances.length === 0) return;
+    if (finances.length === 0) return toast.error("Belum ada data untuk disimpan.");
+    const missing = finances.filter((item) => item.hppStatus === "Belum Mapping");
+    if (missing.length > 0) return toast.error(`Ada ${missing.length} transaksi HPP belum mapping. Jangan simpan sebelum dilengkapi.`);
     setIsSaving(true);
     try {
-      const response = await fetch('/api/finance-shopee', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/finance-shopee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(finances),
       });
-      if (response.ok) alert("Data berhasil disimpan ke Database!");
-    } catch (error) { alert("Gagal menyimpan data."); }
-    finally { setIsSaving(false); }
+      if (!res.ok) throw new Error("Gagal simpan");
+      toast.success("Finance Shopee berhasil disimpan.");
+      fetchData();
+    } catch {
+      toast.error("Gagal menyimpan finance Shopee.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  // --- LOGIKA FILTERING & SORTING SAMA PERSIS TIKTOK ---
-  const filteredFinances = useMemo(() => {
-    return finances.filter(item => {
-      const matchesSearch = globalSearch === "" || String(item.orderId).toLowerCase().includes(globalSearch.toLowerCase());
+  const handleRecalculateHpp = () => {
+    if (finances.length === 0) return toast.error("Belum ada data finance untuk dihitung ulang.");
+    if (products.length === 0) return toast.error("Master HPP produk masih kosong.");
+
+    const recalculated = finances.map((item) => {
+      const refundAmount = Math.abs(Number(item.refund || item.retur || 0)) || 0;
+      const hpp = calculateOrderHpp({
+        salesOrders,
+        products,
+        platform: "Shopee",
+        orderId: item.orderId,
+        orderDate: toISODate(item.createdDate || item.date),
+        status: item.orderStatus,
+        net: item.net,
+        refundAmount,
+        fallback: {
+          orderId: item.orderId,
+          orderDate: item.createdDate || item.date,
+          productName: item.productName,
+          marketplaceSku: item.sku,
+          skuId: item.sku,
+          variationId: item.sku,
+          quantity: item.qty || 1,
+          itemAmount: item.subtotal || item.revenue || item.hargaProduk || item.net,
+          status: item.orderStatus
+        }
+      });
+
+      return {
+        ...item,
+        hppPerItem: hpp.hppPerItem,
+        totalHpp: hpp.totalHpp,
+        labaBersih: hpp.isFinalProfit ? item.net - hpp.totalHpp : 0,
+        hppStatus: hpp.hppStatus,
+        hppMissingSkus: hpp.hppMissingSkus,
+        hppRule: hpp.hppRule,
+        isFinalProfit: hpp.isFinalProfit,
+        orderItems: hpp.orderItems
+      };
+    });
+
+    setFinances(recalculated);
+
+    const missing = recalculated.filter((item) => item.hppStatus === "Belum Mapping").length;
+    if (missing > 0) toast.error(`${missing} transaksi masih HPP kosong.`);
+    else toast.success("Semua HPP Shopee berhasil dihitung ulang.");
+  };
+
+  const filtered = useMemo(() => {
+    const keyword = globalSearch.toLowerCase().trim();
+    return finances.filter((item) => {
+      const orderDate = toISODate(item.date || item.createdDate);
+      const matchesSearch = !keyword || [item.orderId, item.productName, item.sku, (Array.isArray(item.hppMissingSkus) ? item.hppMissingSkus.join(" ") : "")].join(" ").toLowerCase().includes(keyword);
       const matchesStatus = statusFilter === "Semua Status" || item.orderStatus === statusFilter;
-      let matchesDate = true;
-      if (dateRange.start && dateRange.end && item.date && item.date !== "-") {
-        const datePart = String(item.date).split(" ")[0].replace(/\//g, "-"); 
-        matchesDate = datePart >= dateRange.start && datePart <= dateRange.end;
-      }
-      return matchesSearch && matchesStatus && matchesDate;
+      const matchesHpp = hppFilter === "Semua HPP" || item.hppStatus === hppFilter;
+      const matchesDate =
+        (!dateRange.start || orderDate >= dateRange.start) &&
+        (!dateRange.end || orderDate <= dateRange.end);
+      return matchesSearch && matchesStatus && matchesHpp && matchesDate;
     });
-  }, [finances, globalSearch, statusFilter, dateRange]);
+  }, [finances, globalSearch, statusFilter, hppFilter, dateRange]);
 
-  const summaryMetrics = useMemo(() => {
-    let omzet = 0, produkTerjual = 0, totalFee = 0, iklan = 0, affiliate = 0, gratisOngkir = 0;
-    let modal = 0, profitBersih = 0, saldo = 0, danaCair = 0, danaDitahan = 0;
-
-    filteredFinances.forEach(item => {
-      omzet += (item.hargaProduk || 0);
-      produkTerjual += (item.qty || 0);
-      totalFee += (item.fees || 0);
-      iklan += (item.shopeeAds || 0);
-      affiliate += ((item.komisiAffiliate || 0) + (item.ams || 0));
-      gratisOngkir += (item.ongkirXtra || 0);
-      modal += (item.totalHpp || 0);
-      profitBersih += (item.labaBersih || 0);
-      saldo += (item.net || 0);
-
-      // Logika Dana Cair (Hanya yang statusnya selesai)
-      if (item.orderStatus === "Selesai") {
-        danaCair += (item.net || 0);
-      } else {
-        danaDitahan += (item.net || 0);
+  const sorted = useMemo(() => {
+    const data = [...filtered];
+    if (!sortConfig) return data;
+    data.sort((a, b) => {
+      let aVal: any = a[sortConfig.key];
+      let bVal: any = b[sortConfig.key];
+      if (sortConfig.key === "date" || sortConfig.key === "createdDate") {
+        aVal = new Date(toISODate(aVal)).getTime() || 0;
+        bVal = new Date(toISODate(bVal)).getTime() || 0;
       }
+      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
     });
+    return data;
+  }, [filtered, sortConfig]);
 
-    const totalOrder = filteredFinances.length;
-    const aov = totalOrder > 0 ? omzet / totalOrder : 0;
-    const profitKotor = omzet - modal;
-    const margin = omzet > 0 ? (profitBersih / omzet) * 100 : 0;
+  const totalPages = Math.max(1, Math.ceil(sorted.length / itemsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginated = sorted.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [globalSearch, statusFilter, hppFilter, dateRange.start, dateRange.end, itemsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+
+  const generatePagination = () => {
+    const pages: Array<number | string> = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else if (safeCurrentPage <= 4) {
+      pages.push(1, 2, 3, 4, 5, "...", totalPages);
+    } else if (safeCurrentPage >= totalPages - 3) {
+      pages.push(1, "...", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+    } else {
+      pages.push(1, "...", safeCurrentPage - 1, safeCurrentPage, safeCurrentPage + 1, "...", totalPages);
+    }
+    return pages;
+  };
+
+  const summary = useMemo(() => {
+    const totalRevenue = filtered.reduce((sum, item) => sum + Number(item.revenue || item.hargaProduk || item.subtotal || 0), 0);
+    const totalNet = filtered.reduce((sum, item) => sum + Number(item.net || 0), 0);
+    const totalFees = filtered.reduce((sum, item) => sum + Number(item.fees || 0), 0);
+    const totalHpp = filtered.reduce((sum, item) => sum + Number(item.totalHpp || 0), 0);
+    const totalProfit = filtered.reduce((sum, item) => sum + Number(item.labaBersih || 0), 0);
+    const missing = filtered.filter((item) => item.hppStatus === "Belum Mapping").length;
+    const returOrder = filtered.filter((item) => {
+      const status = String(item.orderStatus || "").toLowerCase();
+      return status.includes("retur") || status.includes("refund");
+    }).length;
+    const batalOrder = filtered.filter((item) => String(item.orderStatus || "").toLowerCase().includes("batal")).length;
+    const marginPercent = totalNet > 0 ? (totalProfit / totalNet) * 100 : 0;
 
     return {
-      omzet, totalOrder, produkTerjual, aov,
-      totalFee, iklan, affiliate, gratisOngkir,
-      modal, profitKotor, profitBersih, margin,
-      saldo, danaCair, danaDitahan, settlement: saldo
+      totalRevenue,
+      totalNet,
+      totalFees,
+      totalHpp,
+      totalProfit,
+      missing,
+      totalOrder: filtered.length,
+      returOrder,
+      batalOrder,
+      marginPercent
     };
-  }, [filteredFinances]);
+  }, [filtered]);
 
-  const sortedFinances = useMemo(() => {
-    let sortableItems = [...filteredFinances];
-    if (sortConfig !== null) {
-      sortableItems.sort((a, b) => {
-        let aValue = a[sortConfig.key];
-        let bValue = b[sortConfig.key];
+  const statuses = useMemo(() => Array.from(new Set(finances.map((item) => item.orderStatus))), [finances]);
 
-        // KHUSUS UNTUK TANGGAL: Ubah teks menjadi angka waktu agar urutannya 100% akurat
-        if (sortConfig.key === 'date' || sortConfig.key === 'createdDate') {
-          const parseDate = (d: string) => {
-            if (!d || d === "-") return 0;
-            const dateOnly = d.split(" ")[0]; // Buang jam jika ada
-            // Jika format YYYY-MM-DD
-            if (dateOnly.includes("-")) return new Date(dateOnly).getTime();
-            // Jika format DD/MM/YYYY
-            if (dateOnly.includes("/")) {
-              const parts = dateOnly.split("/");
-              if (parts.length === 3) return new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
-            }
-            return 0;
-          };
-          aValue = parseDate(String(aValue));
-          bValue = parseDate(String(bValue));
-        }
+  const requestSort = (key: keyof FinanceRow) => setSortConfig((prev) => ({ key, direction: prev?.key === key && prev.direction === "asc" ? "desc" : "asc" }));
+  const sortIcon = (key: keyof FinanceRow) => !sortConfig || sortConfig.key !== key ? <ArrowUpDown size={14} /> : sortConfig.direction === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />;
 
-        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-    return sortableItems;
-  }, [filteredFinances, sortConfig]);
-
-  const requestSort = (key: string) => setSortConfig({ key, direction: sortConfig?.direction === 'asc' ? 'desc' : 'asc' });
-
-  // PAGINATION
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const currentItems = sortedFinances.slice(indexOfLastItem - itemsPerPage, indexOfLastItem);
-  const totalPages = Math.ceil(sortedFinances.length / (itemsPerPage || 1));
-
-  const formatRupiah = (angka: any) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(angka) || 0);
+  const exportMissingHpp = () => {
+    const data = finances.filter((item) => item.hppStatus === "Belum Mapping");
+    if (data.length === 0) return toast.success("Tidak ada HPP belum mapping.");
+    const ws = XLSX.utils.json_to_sheet(data.map((item) => ({
+      Platform: item.platform,
+      "Order ID": item.orderId,
+      "Tanggal": item.createdDate,
+      "SKU Belum Mapping": (Array.isArray(item.hppMissingSkus) ? item.hppMissingSkus.join(", ") : ""),
+      "Nama Produk": item.productName,
+      Qty: item.qty,
+      Net: item.net,
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "HPP Belum Mapping");
+    XLSX.writeFile(wb, "Shopee_HPP_Belum_Mapping.xlsx");
+  };
 
   return (
-    <>
-      <main className="flex-1 p-8 h-screen overflow-hidden flex flex-col bg-slate-50/50">
-        <header className="mb-8 flex justify-between items-end">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">Laba Rugi & Pencairan Shopee</h2>
-            <div className="flex items-center gap-2 mt-1.5">
-              <CheckCircle2 size={10} className="text-[#EE4D2D]" />
-              <span className="text-slate-500 font-medium text-sm">Kelola &quot;Data Keuangan&quot; Shopee Seller</span>
-            </div>
-          </div>
-          
-          <div className="flex gap-3">
-            {user?.role === 'admin' && (
-              <>
-                <button onClick={handleSaveToDatabase} disabled={isSaving || finances.length === 0} className="bg-[#EE4D2D] text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-[#d73211] disabled:opacity-50 flex items-center gap-2 text-sm font-bold transition-all shadow-sm">
-                  <Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan ke Database"}
-                </button>
-                <label className="bg-slate-900 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-slate-800 flex items-center gap-2 text-sm font-bold shadow-sm">
-                  <Upload size={16} /> {isUploading ? "Memproses..." : "Upload Excel Laporan"}
-                  <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
-                </label>
-              </>
-            )}
-          </div>
-        </header>
-
-        {/* SUMMARY CARDS KEUANGAN (4 KOTAK UTAMA) */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center relative overflow-hidden">
-            <div className="absolute right-4 top-4 bg-blue-50 p-2 rounded-xl"><CircleDollarSign size={20} className="text-blue-500" /></div>
-            <p className="text-sm font-bold text-slate-500 mb-1">Total Penjualan</p>
-            <h3 className="text-2xl font-black text-slate-900">{formatRupiah(summaryMetrics.omzet)}</h3>
-            <p className="text-xs text-slate-400 mt-1 font-medium">Harga barang asli sebelum dipotong</p>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-red-100 shadow-sm flex flex-col justify-center relative overflow-hidden">
-            <div className="absolute right-4 top-4 bg-red-50 p-2 rounded-xl"><TrendingDown size={20} className="text-red-500" /></div>
-            <p className="text-sm font-bold text-red-500 mb-1">Total Potongan</p>
-            <h3 className="text-2xl font-black text-red-600">-{formatRupiah(summaryMetrics.totalFee)}</h3>
-            <p className="text-xs text-red-400 mt-1 font-medium">Biaya platform, admin, iklan, dll</p>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm flex flex-col justify-center relative overflow-hidden">
-            <div className="absolute right-4 top-4 bg-orange-50 p-2 rounded-xl"><ShoppingBag size={20} className="text-[#EE4D2D]" /></div>
-            <p className="text-sm font-bold text-slate-500 mb-1">Total HPP Produk</p>
-            <h3 className="text-2xl font-black text-slate-900">{formatRupiah(summaryMetrics.modal)}</h3>
-            <p className="text-xs text-slate-400 mt-1 font-medium">Akumulasi modal barang terjual</p>
-          </div>
-
-          <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-5 rounded-2xl border border-emerald-600 shadow-md flex flex-col justify-center relative overflow-hidden text-white">
-            <div className="absolute right-4 top-4 bg-white/20 p-2 rounded-xl"><BarChart3 size={20} className="text-white" /></div>
-            <p className="text-sm font-bold text-emerald-100 mb-1">Profit Bersih</p>
-            <h3 className="text-2xl font-black text-white">{formatRupiah(summaryMetrics.profitBersih)}</h3>
-            <p className="text-xs text-emerald-100 mt-1 font-medium">Pencairan (Settlement) - Total HPP</p>
-          </div>
-
+    <main className="flex-1 bg-slate-50 min-h-screen text-slate-800 p-4 md:p-8 overflow-x-hidden">
+      <header className="mb-6 flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2"><WalletCards size={24} /> Finance Shopee</h2>
+          <p className="text-sm text-slate-500 mt-1">Profit dihitung dari laporan penghasilan Shopee + sales item + master HPP platform/SKU/tanggal berlaku.</p>
         </div>
-
-        {/* FILTER BAR */}
-        <div className="mb-4 flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex-1 min-w-[300px] relative">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Cari Order ID..." value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 rounded-lg outline-none focus:ring-1 focus:ring-[#EE4D2D]" />
-          </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="py-2 pl-4 pr-8 bg-white border border-slate-200 rounded-lg text-sm outline-none cursor-pointer">
-            <option value="Semua Status">Semua Status</option>
-            <option value="Selesai">Selesai</option>
-            <option value="Retur / Refund">Retur / Refund</option>
-            <option value="Batal">Batal</option>
-          </select>
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm hover:bg-slate-50"><Calendar size={16} className="text-[#EE4D2D]"/> Filter Tanggal</button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-orange-50 text-[#EE4D2D] border border-orange-200 rounded-lg text-sm font-medium hover:bg-orange-100 ml-auto"><Download size={16}/> Export Data</button>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button onClick={exportMissingHpp} className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 hover:bg-slate-50"><Download size={16} /> Export HPP Kosong</button>
+          <button onClick={handleRecalculateHpp} disabled={finances.length === 0} className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 hover:bg-slate-50 disabled:opacity-50"><CheckCircle2 size={16} /> Hitung Ulang HPP</button>
+          {user?.role === "admin" && <button onClick={handleSaveToDatabase} disabled={isSaving || finances.length === 0} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 disabled:opacity-50 hover:bg-emerald-700"><Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan Finance"}</button>}
+          {user?.role === "admin" && <label className="bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 cursor-pointer hover:bg-slate-800"><Upload size={16} /> {isUploading ? "Memproses..." : "Upload Finance Shopee"}<input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileUpload} /></label>}
         </div>
+      </header>
 
-        {/* TABEL DATA */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col flex-1 min-h-0">
-{/* --- AREA SCROLL ISI TABEL --- */}
-          {/* Tambahan w-full dan perbaikan agar bisa digeser horizontal di HP */}
-          <div className="overflow-x-auto overflow-y-auto flex-1 relative w-full">
-            <table className="w-full min-w-[800px] text-left border-collapse">
-              <thead className="bg-slate-50 sticky top-0 z-10 outline outline-1 outline-slate-200">
-                <tr>
-                  <th onClick={()=>requestSort('orderId')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase cursor-pointer hover:bg-slate-100">Order ID</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase">Status</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase">Tgl Selesai</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase text-center">QTY</th>
-                  <th onClick={()=>requestSort('hargaProduk')} className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase cursor-pointer text-right">Harga Jual</th>
-                  <th onClick={()=>requestSort('hppPerItem')} className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase bg-slate-100/50 text-right">Harga Modal</th>
-                  <th onClick={()=>requestSort('totalHpp')} className="px-6 py-3.5 text-[11px] font-bold text-slate-500 uppercase bg-slate-100/50 text-right">Total HPP</th>
-                  <th onClick={()=>requestSort('fees')} className="px-6 py-3.5 text-[11px] font-semibold text-red-500 uppercase text-right">Potongan</th>
-                  <th onClick={()=>requestSort('labaBersih')} className="px-6 py-3.5 text-[11px] font-bold text-emerald-600 uppercase text-right">Laba Bersih</th>
-                  <th className="px-6 py-3.5 text-[11px] font-semibold text-slate-500 uppercase text-center">Detail</th>
+      {summary.missing > 0 && <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm font-bold flex items-center gap-2"><AlertTriangle size={18} /> Ada {summary.missing} transaksi yang HPP-nya belum mapping. Lengkapi Master HPP sebelum menyimpan.</div>}
+
+      <section className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <Metric title="Order" value={summary.totalOrder} tone="blue" />
+        <Metric title="Omzet" value={formatRupiah(summary.totalRevenue)} tone="slate" />
+        <Metric title="Dana Cair" value={formatRupiah(summary.totalNet)} tone="green" />
+        <Metric title="Potongan" value={formatRupiah(summary.totalFees)} tone="red" />
+        <Metric title="Total HPP" value={formatRupiah(summary.totalHpp)} tone="orange" />
+        <Metric title="Profit Final" value={formatRupiah(summary.totalProfit)} tone={summary.totalProfit < 0 ? "red" : "green"} />
+        <Metric title="Margin" value={`${summary.marginPercent.toFixed(1)}%`} tone={summary.marginPercent < 0 ? "red" : "green"} />
+        <Metric title="Retur / Refund" value={summary.returOrder + summary.batalOrder} tone={(summary.returOrder + summary.batalOrder) > 0 ? "red" : "green"} />
+        <Metric title="HPP Kosong" value={summary.missing} tone={summary.missing > 0 ? "red" : "green"} />
+      </section>
+
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-slate-200 grid grid-cols-1 xl:grid-cols-[1fr_auto_auto_auto] gap-3">
+          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} placeholder="Cari order, SKU, produk..." className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm outline-none focus:border-slate-900" /></div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold bg-white"><option>Semua Status</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select>
+          <select value={hppFilter} onChange={(e) => setHppFilter(e.target.value)} className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold bg-white"><option>Semua HPP</option><option>Valid</option><option>Belum Mapping</option><option>Dikesampingkan - Batal/Retur</option></select>
+          <div className="flex gap-2"><input type="date" value={dateRange.start} onChange={(e) => setDateRange((prev) => ({ ...prev, start: e.target.value }))} className="w-full px-3 py-3 rounded-xl border border-slate-200 text-sm" /><input type="date" value={dateRange.end} onChange={(e) => setDateRange((prev) => ({ ...prev, end: e.target.value }))} className="w-full px-3 py-3 rounded-xl border border-slate-200 text-sm" /></div>
+        </div>
+        <div className="overflow-auto max-h-[68vh] min-h-[420px]">
+          <table className="w-full min-w-[1320px] text-left">
+            <thead className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur border-b border-slate-200 shadow-sm">
+              <tr><Head title="Tanggal" onClick={() => requestSort("date")} icon={sortIcon("date")} /><Head title="Order ID" /><Head title="Status" /><Head title="Item" right /><Head title="Net" right onClick={() => requestSort("net")} icon={sortIcon("net")} /><Head title="Potongan" right /><Head title="HPP" right /><Head title="Profit" right /><Head title="Status HPP" /><Head title="SKU Belum Mapping" /><Head title="Aksi" /></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {sorted.length > 0 ? paginated.map((item) => (
+                <tr key={item.orderId} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-sm text-slate-500 whitespace-nowrap">{formatDateDisplay(item.date)}</td>
+                  <td className="px-4 py-3 text-sm font-mono text-slate-700">{item.orderId}</td>
+                  <td className="px-4 py-3"><StatusBadge status={item.orderStatus} /></td>
+                  <td className="px-4 py-3 text-sm font-bold text-right">{item.qty}</td>
+                  <td className="px-4 py-3 text-sm font-black text-right">{formatRupiah(item.net)}</td>
+                  <td className="px-4 py-3 text-sm font-black text-right text-red-600">{formatRupiah(item.fees)}</td>
+                  <td className="px-4 py-3 text-sm font-black text-right">{formatRupiah(item.totalHpp)}</td>
+                  <td className={`px-4 py-3 text-sm font-black text-right ${item.isFinalProfit ? (item.labaBersih < 0 ? "text-red-600" : "text-emerald-600") : "text-slate-400"}`}>{item.isFinalProfit ? formatRupiah(item.labaBersih) : "-"}</td>
+                  <td className="px-4 py-3"><HppBadge status={item.hppStatus} /></td>
+                  <td className="px-4 py-3 text-xs text-red-600 max-w-[220px] truncate">{Array.isArray(item.hppMissingSkus) && item.hppMissingSkus.length > 0 ? item.hppMissingSkus.join(", ") : "-"}</td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => setSelectedOrder(hydrateDetailOrder(item))} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-900 hover:text-white transition-colors">
+                      <Eye size={13} /> Detail
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {currentItems.map((item, i) => (
-                  <tr key={i} className="hover:bg-orange-50/30">
-                    <td className="px-6 py-4 text-sm font-mono font-bold text-slate-900">{item.orderId}</td>
-                    <td className="px-6 py-4"><span className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded-md ${item.orderStatus.includes('Retur')?'bg-red-100 text-red-600':item.orderStatus.includes('Batal')?'bg-slate-100 text-slate-600':'bg-emerald-100 text-emerald-600'}`}>{item.orderStatus}</span></td>
-                    <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">{item.date?.split(" ")[0]}</td>
-                    <td className="px-6 py-4 text-sm text-center font-bold">{item.qty}</td>
-                    <td className="px-6 py-4 text-sm text-right text-slate-600">{formatRupiah(item.hargaProduk)}</td>
-                    <td className="px-6 py-4 text-sm text-right text-slate-500">{formatRupiah(item.hppPerItem)}</td>
-                    <td className="px-6 py-4 text-sm text-right bg-slate-50 font-bold text-slate-700">{formatRupiah(item.totalHpp)}</td>
-                    <td className="px-6 py-4 text-sm text-right text-red-500">-{formatRupiah(item.fees)}</td>
-                    <td className={`px-6 py-4 text-sm text-right font-bold ${item.labaBersih < 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatRupiah(item.labaBersih)}</td>
-                    <td className="px-6 py-4 text-center">
-                      <button onClick={() => setSelectedOrder(item)} className="p-1.5 text-slate-400 hover:text-[#EE4D2D] hover:bg-orange-50 rounded-md"><Eye size={18}/></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* PAGINATION FOOTER */}
-          <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-sm text-slate-500">
-             <span>Menampilkan {filteredFinances.length === 0 ? 0 : indexOfLastItem - itemsPerPage + 1} - {Math.min(indexOfLastItem, filteredFinances.length)} dari {filteredFinances.length} data</span>
-             <div className="flex gap-2">
-                <button onClick={() => setCurrentPage(p=>p-1)} disabled={currentPage===1} className="px-3 py-1 bg-white border rounded hover:bg-slate-50 disabled:opacity-50">Prev</button>
-                <button onClick={() => setCurrentPage(p=>p+1)} disabled={currentPage===totalPages} className="px-3 py-1 bg-white border rounded hover:bg-slate-50 disabled:opacity-50">Next</button>
-             </div>
-          </div>
+              )) : <tr><td colSpan={11} className="px-4 py-12 text-center text-sm font-bold text-slate-400">Belum ada data finance Shopee.</td></tr>}
+            </tbody>
+          </table>
         </div>
-
-        {/* MODAL DETAIL KEUANGAN (NEW DESIGN - TIKTOK STYLE WITH SHOPEE DATA) */}
-        {selectedOrder && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl relative flex flex-col max-h-[95vh] overflow-hidden animate-in zoom-in-95 duration-300">
-              
-              {/* HEADER */}
-              <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start">
-                <div className="flex gap-4">
-                  <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center shrink-0">
-                    <Calendar className="text-blue-500" size={24} />
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900">Detail Penyelesaian Transaksi</h2>
-                    <div className="flex items-center gap-2 mt-2">
-                      <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full text-xs font-semibold border border-emerald-100">
-                        <CheckCircle2 size={12} />
-                        Telah diselesaikan
-                      </div>
-                      <span className="text-slate-500 text-sm">{selectedOrder.date?.split(" ")[0] || "-"}</span>
-                    </div>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setSelectedOrder(null)}
-                  className="p-2 bg-slate-50 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
+        <div className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+              <p className="text-xs font-bold text-slate-500">
+                Menampilkan {sorted.length === 0 ? 0 : startIndex + 1} - {Math.min(endIndex, sorted.length)} dari {sorted.length} data
+              </p>
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                Tampilkan
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 outline-none focus:border-slate-900"
                 >
-                  <X size={20} />
-                </button>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                / halaman
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={safeCurrentPage === 1}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Awal
+              </button>
+              <button
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={safeCurrentPage === 1}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Prev
+              </button>
+
+              <div className="flex items-center gap-1">
+                {generatePagination().map((page, idx) => (
+                  <button
+                    key={`${page}-${idx}`}
+                    onClick={() => typeof page === "number" && setCurrentPage(page)}
+                    disabled={page === "..."}
+                    className={`min-w-9 rounded-lg px-3 py-2 text-xs font-black transition-colors ${
+                      safeCurrentPage === page
+                        ? "bg-slate-900 text-white"
+                        : page === "..."
+                          ? "cursor-default text-slate-400"
+                          : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
               </div>
 
-              {/* BODY (Scrollable) */}
-              <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1">
-                
-                {/* INFO ROW */}
-                <div className="grid grid-cols-3 gap-4 mb-6 text-sm">
-                  <div>
-                    <p className="text-slate-500 mb-1">ID Pesanan</p>
-                    <p className="font-semibold text-slate-900 flex items-center gap-2">
-                      {selectedOrder.orderId}
-                      <button className="text-indigo-500 hover:text-indigo-700"><Search size={14} /></button>
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-slate-500 mb-1">Nama Produk</p>
-                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.productName || "Tidak Diketahui"}>
-                      {selectedOrder.productName || "Tidak Diketahui"}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-slate-500 mb-1">SKU / Variasi</p>
-                    <p className="font-semibold text-slate-900 truncate" title={selectedOrder.sku || "-"}>
-                      {selectedOrder.sku || "-"}
-                    </p>
-                  </div>
-                </div>
+              <button
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={safeCurrentPage === totalPages}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safeCurrentPage === totalPages}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Akhir
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+      {selectedOrder && <DetailModal item={selectedOrder} onClose={() => setSelectedOrder(null)} />}
+    </main>
+  );
+}
 
-                {/* HIGHLIGHT CARDS */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-6 mb-6 shadow-sm">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-slate-500 mb-1">Dana diselesaikan</p>
-                    <p className="text-2xl font-bold text-emerald-600">{formatRupiah(selectedOrder.net)}</p>
-                  </div>
-                  <div className="w-px h-12 bg-slate-200"></div>
-                  <div className="flex-1 flex items-center gap-3">
-                    <div className="bg-emerald-50 p-2 rounded-lg">
-                       <ArrowUp className="text-emerald-500" size={18} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1">Total Pendapatan</p>
-                      <p className="text-base font-bold text-slate-900">{formatRupiah((selectedOrder.hargaProduk || 0) + (selectedOrder.ongkirPembeli || 0) + (selectedOrder.subsidiOngkir || 0) + (selectedOrder.voucherShopee || 0) + (selectedOrder.cashbackShopee || 0) + (selectedOrder.penyesuaianSaldo || 0) + (selectedOrder.codPembeli || 0) + (selectedOrder.kompensasi || 0))}</p>
-                    </div>
-                  </div>
-                  <div className="w-px h-12 bg-slate-200"></div>
-                  <div className="flex-1 flex items-center gap-3">
-                    <div className="bg-red-50 p-2 rounded-lg">
-                       <TrendingDown className="text-red-500" size={18} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1">Total Potongan</p>
-                      <p className="text-base font-bold text-red-600">-{formatRupiah(selectedOrder.fees)}</p>
-                    </div>
-                  </div>
-                </div>
+function Metric({ title, value, tone = "slate" }: { title: string; value: string | number; tone?: "slate" | "blue" | "green" | "orange" | "red" }) {
+  const styles = {
+    slate: "border-slate-200 bg-white text-slate-900 ring-slate-100",
+    blue: "border-blue-200 bg-blue-50 text-blue-700 ring-blue-100",
+    green: "border-emerald-200 bg-emerald-50 text-emerald-700 ring-emerald-100",
+    orange: "border-orange-200 bg-orange-50 text-orange-700 ring-orange-100",
+    red: "border-red-200 bg-red-50 text-red-700 ring-red-100",
+  };
 
-                {/* --- MAIN CONTENT LAYOUT (FLEX COLUMNS) --- */}
-                <div className="flex flex-col md:flex-row gap-4 mb-2 items-start">
-                  
-                  {/* KOLOM KIRI */}
-                  <div className="flex flex-col gap-4 flex-1 w-full">
-                    
-                    {/* Pendapatan dari Pesanan */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center gap-2 mb-3">
-                        <CircleDollarSign className="text-emerald-500" size={16} />
-                        <h3 className="font-bold text-slate-900 text-sm">Pendapatan dari Pesanan</h3>
-                      </div>
-                      <div className="space-y-2 text-xs">
-                        <DetailRow label="Harga Produk" value={selectedOrder.hargaProduk} />
-                        <DetailRow label="Ongkir Dibayar Pembeli" value={selectedOrder.ongkirPembeli} />
-                        <DetailRow label="Subsidi Ongkir Shopee" value={selectedOrder.subsidiOngkir} />
-                        <DetailRow label="Voucher Ditanggung Shopee" value={selectedOrder.voucherShopee} />
-                        <DetailRow label="Cashback Shopee" value={selectedOrder.cashbackShopee} />
-                        <DetailRow label="Pendapatan Penjualan" value={(selectedOrder.hargaProduk || 0) + (selectedOrder.ongkirPembeli || 0) + (selectedOrder.subsidiOngkir || 0) + (selectedOrder.voucherShopee || 0) + (selectedOrder.cashbackShopee || 0) - (selectedOrder.voucherPenjual || 0)} />
-                        <DetailRow label="Dana Diterima" value={selectedOrder.net} />
-                        <DetailRow label="Penyesuaian Saldo" value={selectedOrder.penyesuaianSaldo} />
-                        <DetailRow label="Biaya COD Dibayar Pembeli" value={selectedOrder.codPembeli} />
-                        <DetailRow label="Kompensasi Shopee" value={selectedOrder.kompensasi} />
-                        
-                        <div className="border-t border-slate-100 pt-2 mt-2 flex justify-between font-bold text-slate-900 text-[13px]">
-                          <span>Total Pemasukan Shopee</span>
-                          <span className="text-emerald-600">{formatRupiah((selectedOrder.hargaProduk || 0) + (selectedOrder.ongkirPembeli || 0) + (selectedOrder.subsidiOngkir || 0) + (selectedOrder.voucherShopee || 0) + (selectedOrder.cashbackShopee || 0) + (selectedOrder.penyesuaianSaldo || 0) + (selectedOrder.codPembeli || 0) + (selectedOrder.kompensasi || 0))}</span>
-                        </div>
-                      </div>
-                    </div>
+  const labelStyles = {
+    slate: "text-slate-500",
+    blue: "text-blue-600",
+    green: "text-emerald-600",
+    orange: "text-orange-600",
+    red: "text-red-600",
+  };
 
-                    {/* Informasi Transaksi */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Calendar className="text-indigo-500" size={16} />
-                        <h3 className="font-bold text-slate-900 text-sm">Informasi Transaksi</h3>
-                      </div>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between text-slate-600">
-                          <span>Order Created Time</span>
-                          <span className="text-slate-900 text-right">{selectedOrder.createdDate}</span>
-                        </div>
-                        <div className="flex justify-between text-slate-600">
-                          <span>Order Settled Time</span>
-                          <span className="text-slate-900 text-right">{selectedOrder.date}</span>
-                        </div>
-                        <div className="flex justify-between text-slate-600">
-                          <span>Sumber Order</span>
-                          <span className="text-slate-900 text-right">Shopee</span>
-                        </div>
-                      </div>
-                    </div>
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ring-1 transition-all hover:-translate-y-0.5 hover:shadow-md ${styles[tone]}`}>
+      <p className={`text-[11px] font-black mb-1 ${labelStyles[tone]}`}>{title}</p>
+      <h3 className="text-xl font-black">{value}</h3>
+    </div>
+  );
+}
 
-                    {/* BOTTOM CARD: Analisis Profit Internal */}
-                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center gap-2 mb-3">
-                        <BarChart3 className="text-emerald-600" size={16} />
-                        <h3 className="font-bold text-emerald-900 text-sm">Analisis Profit Internal</h3>
-                      </div>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between text-slate-600">
-                          <span>Total HPP ({selectedOrder.qty} item)</span>
-                          <span className="text-red-500">-{formatRupiah(selectedOrder.totalHpp)}</span>
-                        </div>
-                        <div className="border-t border-emerald-200 pt-2 mt-2 flex justify-between items-center font-bold">
-                          <span className="text-[13px] text-emerald-900">Laba Bersih</span>
-                          <span className={`text-lg ${selectedOrder.labaBersih < 0 ? 'text-red-500' : 'text-emerald-600'}`}>{formatRupiah(selectedOrder.labaBersih)}</span>
-                        </div>
-                      </div>
-                    </div>
+function Head({ title, onClick, icon, right }: { title: string; onClick?: () => void; icon?: ReactNode; right?: boolean }) {
+  return <th onClick={onClick} className={`px-4 py-3 text-[11px] uppercase tracking-wider font-black text-slate-500 ${onClick ? "cursor-pointer hover:bg-slate-100" : ""} ${right ? "text-right" : ""}`}><div className={`flex items-center gap-1 ${right ? "justify-end" : ""}`}>{title}{icon}</div></th>;
+}
 
-                  </div>
+function StatusBadge({ status }: { status: string }) {
+  const text = String(status || "").toLowerCase();
+  const cls = text.includes("batal") || text.includes("cancel") ? "bg-red-50 text-red-700 border-red-200" : text.includes("retur") || text.includes("refund") ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-emerald-50 text-emerald-700 border-emerald-200";
+  return <span className={`px-2 py-1 rounded-full border text-[10px] font-black ${cls}`}>{status}</span>;
+}
 
-                  {/* KOLOM KANAN (Rincian Potongan Lengkap) */}
-                  <div className="flex flex-col flex-1 w-full">
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm h-full">
-                      <div className="flex items-center gap-2 mb-3">
-                        <TrendingDown className="text-red-500" size={16} />
-                        <h3 className="font-bold text-slate-900 text-sm">Rincian Potongan</h3>
-                      </div>
-                      <div className="space-y-2 text-xs">
-                        <DetailRow label="Biaya Administrasi" value={selectedOrder.admin} isMinus />
-                        <DetailRow label="Biaya Layanan" value={selectedOrder.layanan} isMinus />
-                        <DetailRow label="Biaya Program Gratis Ongkir XTRA" value={selectedOrder.ongkirXtra} isMinus />
-                        <DetailRow label="Biaya Cashback XTRA" value={selectedOrder.cashbackXtra} isMinus />
-                        <DetailRow label="Biaya Affiliate Marketing Solution (AMS)" value={selectedOrder.ams} isMinus />
-                        <DetailRow label="Komisi Shopee Affiliate" value={selectedOrder.komisiAffiliate} isMinus />
-                        <DetailRow label="Pajak (PPN/PPh)" value={selectedOrder.pajak} isMinus />
-                        <DetailRow label="Biaya COD" value={selectedOrder.biayaCod} isMinus />
-                        <DetailRow label="Voucher Ditanggung Penjual" value={selectedOrder.voucherPenjual} isMinus />
-                        <DetailRow label="Cashback Ditanggung Penjual" value={selectedOrder.cashbackPenjual} isMinus />
-                        <DetailRow label="Biaya Iklan Shopee Ads" value={selectedOrder.shopeeAds} isMinus />
-                        <DetailRow label="Penalti/Denda" value={selectedOrder.penalti} isMinus />
-                        <DetailRow label="Refund Pembeli" value={selectedOrder.refund} isMinus />
-                        <DetailRow label="Retur Barang" value={selectedOrder.retur} isMinus />
-                        <DetailRow label="Biaya Transfer Bank" value={selectedOrder.transfer} isMinus />
-                        <DetailRow label="Biaya Materai" value={selectedOrder.materai} isMinus />
-                        <DetailRow label="Penyesuaian Sistem" value={selectedOrder.penyesuaianSistem} isMinus />
-                        
-                        <div className="border-t border-slate-100 pt-2 mt-2 flex justify-between font-bold text-slate-900 text-[13px]">
-                          <span>Total Semua Potongan</span>
-                          <span className="text-red-600">-{formatRupiah(selectedOrder.fees)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+function HppBadge({ status }: { status: string }) {
+  const cls = status === "Valid" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : status === "Belum Mapping" ? "bg-red-50 text-red-700 border-red-200" : "bg-slate-50 text-slate-600 border-slate-200";
+  return <span className={`px-2 py-1 rounded-full border text-[10px] font-black ${cls}`}>{status}</span>;
+}
 
-                </div>
+function DetailModal({ item, onClose }: { item: FinanceRow; onClose: () => void }) {
+  const isTikTok = String(item.platform) === "TikTok";
+  const isFinal = Boolean(item.isFinalProfit);
+  const profitTone = !isFinal ? "text-slate-500" : item.labaBersih < 0 ? "text-red-600" : "text-emerald-600";
+  const profitBg = !isFinal ? "bg-slate-50 border-slate-200" : item.labaBersih < 0 ? "bg-red-50 border-red-100" : "bg-emerald-50 border-emerald-100";
+  const totalPendapatan = Number(item.revenue || item.hargaProduk || item.subtotal || 0);
+  const missingSkus = Array.isArray(item.hppMissingSkus) && item.hppMissingSkus.length > 0 ? item.hppMissingSkus.join(", ") : "-";
 
+  const pemasukanRows = isTikTok ? [
+    ["Subtotal pesanan", item.subtotal],
+    ["Diskon dari penjual", -(Number(item.sellerDiscount) || 0)],
+    ["Penyesuaian", item.adjustment],
+  ] : [
+    ["Harga produk", item.hargaProduk || item.revenue],
+    ["Ongkir dibayar pembeli", item.ongkirPembeli],
+    ["Subsidi ongkir marketplace", item.subsidiOngkir],
+    ["Voucher marketplace", item.voucherShopee],
+    ["Cashback marketplace", item.cashbackShopee],
+    ["Penyesuaian saldo", item.penyesuaianSaldo],
+    ["COD dibayar pembeli", item.codPembeli],
+    ["Kompensasi", item.kompensasi],
+  ];
+
+  const tiktokPenalty = Number(item.adjustment || 0) < 0 ? Math.abs(Number(item.adjustment || 0)) : 0;
+  const tiktokKnownPotongan =
+    Math.abs(Number(item.platformFee || 0)) +
+    Math.abs(Number(item.affiliateFee || 0)) +
+    Math.abs(Number(item.freeShippingFee || 0)) +
+    Math.abs(Number(item.paymentFee || 0)) +
+    Math.abs(Number(item.tax || 0)) +
+    Math.abs(Number(item.codFee || 0)) +
+    tiktokPenalty;
+
+  const tiktokOngkirPenjual = Math.max(0, Math.abs(Number(item.fees || 0)) - tiktokKnownPotongan);
+
+  const shopeeKnownPotongan =
+    Math.abs(Number(item.admin || 0)) +
+    Math.abs(Number(item.layanan || 0)) +
+    Math.abs(Number(item.ongkirXtra || 0)) +
+    Math.abs(Number(item.cashbackXtra || 0)) +
+    Math.abs(Number(item.ams || 0)) +
+    Math.abs(Number(item.komisiAffiliate || 0)) +
+    Math.abs(Number(item.pajak || 0)) +
+    Math.abs(Number(item.biayaCod || 0)) +
+    Math.abs(Number(item.voucherPenjual || 0)) +
+    Math.abs(Number(item.cashbackPenjual || 0)) +
+    Math.abs(Number(item.shopeeAds || 0)) +
+    Math.abs(Number(item.penalti || 0)) +
+    Math.abs(Number(item.refund || 0)) +
+    Math.abs(Number(item.retur || 0)) +
+    Math.abs(Number(item.transfer || 0)) +
+    Math.abs(Number(item.materai || 0)) +
+    Math.abs(Number(item.penyesuaianSistem || 0));
+
+  const shopeePotonganLainnya = Math.max(0, Math.abs(Number(item.fees || 0)) - shopeeKnownPotongan);
+
+  const potonganRows = isTikTok ? [
+    ["Biaya Platform", item.platformFee],
+    ["Biaya Administrasi", 0],
+    ["Biaya Komisi Affiliate", item.affiliateFee],
+    ["Biaya Ongkir Penjual", tiktokOngkirPenjual],
+    ["Biaya Program Gratis Ongkir", item.freeShippingFee],
+    ["Biaya Pembayaran / Payment Fee", item.paymentFee],
+    ["Pajak (PPN/PPh)", item.tax],
+    ["Biaya COD", item.codFee],
+    ["Biaya Retur / Refund", item.refund],
+    ["Penalti / Denda", tiktokPenalty],
+    ["Biaya Affiliate Extra", 0],
+  ] : [
+    ["Biaya Administrasi", item.admin],
+    ["Biaya Layanan", item.layanan],
+    ["Biaya Program Gratis Ongkir", item.ongkirXtra],
+    ["Biaya Cashback / Kampanye", item.cashbackXtra],
+    ["AMS / Affiliate Marketing Solution", item.ams],
+    ["Komisi Shopee Affiliate", item.komisiAffiliate],
+    ["Pajak / Bea Masuk / PPN / PPH", item.pajak],
+    ["Biaya COD", item.biayaCod],
+    ["Voucher Ditanggung Penjual", item.voucherPenjual],
+    ["Cashback Ditanggung Penjual", item.cashbackPenjual],
+    ["Shopee Ads", item.shopeeAds],
+    ["Penalti / Denda", item.penalti],
+    ["Refund Pembeli", item.refund],
+    ["Retur Barang", item.retur],
+    ["Biaya Transfer", item.transfer],
+    ["Biaya Materai", item.materai],
+    ["Penyesuaian Sistem", item.penyesuaianSistem],
+    ["Potongan Lain / Selisih Laporan", shopeePotonganLainnya],
+  ];
+
+  const orderItems = Array.isArray(item.orderItems) ? item.orderItems : [];
+  const detailProductNames = Array.from(new Set(orderItems.map((row: any) => String(row.productName || row.product_name || row.namaProduk || row.nama_produk || row.name || "").trim()).filter((value) => value && value !== "-")));
+  const detailSkus = Array.from(new Set(orderItems.map((row: any) => String(row.sku || row.marketplaceSku || row.sellerSku || row.seller_sku || row.skuId || row.sku_id || "").trim()).filter((value) => value && value !== "-")));
+  const detailProductName = detailProductNames.length > 0 ? detailProductNames.join(", ") : (item.productName && item.productName !== "-" ? item.productName : "Tidak Diketahui");
+  const detailSku = detailSkus.length > 0 ? detailSkus.join(", ") : (item.sku && item.sku !== "-" ? item.sku : "-");
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/55 p-3 sm:p-6 backdrop-blur-sm">
+      <div className="w-full max-w-5xl max-h-[94vh] overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:px-7">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+              <WalletCards size={24} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">Detail Penyelesaian Transaksi</h2>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-black text-emerald-700">
+                  <CheckCircle2 size={12} /> Telah diselesaikan
+                </span>
+                <span className="text-xs font-bold text-slate-500">{formatDateDisplay(item.date)}</span>
+                <StatusBadge status={item.orderStatus} />
+                <HppBadge status={item.hppStatus} />
               </div>
             </div>
           </div>
-        )}
-      </main>
-    </>
-  );
-}
+          <button onClick={onClose} className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-500 transition-colors hover:bg-slate-900 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
 
-// Komponen Pembantu Summary Card
-function SummaryCard({ label, value, color = "text-slate-900" }: { label: string, value: string | number, color?: string }) {
-  return (
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center hover:border-slate-300 transition-colors">
-      <p className="text-[11px] font-semibold text-slate-500 mb-1">{label}</p>
-      <h3 className={`text-lg font-bold ${color}`}>{value}</h3>
+        <div className="max-h-[calc(94vh-96px)] overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
+          <section className="grid grid-cols-1 gap-4 border-b border-slate-100 pb-5 sm:grid-cols-3">
+            <InfoHeader label="ID Pesanan" value={item.orderId} />
+            <InfoHeader label="Nama Produk" value={detailProductName} />
+            <InfoHeader label="SKU / Variasi" value={detailSku} />
+          </section>
+
+          <section className="mt-5 grid grid-cols-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm md:grid-cols-3">
+            <TopAmount label="Dana diselesaikan" value={formatRupiah(item.net)} tone="green" />
+            <TopAmount label="Total Pendapatan" value={formatRupiah(totalPendapatan)} tone="slate" />
+            <TopAmount label="Total Potongan" value={formatDeduction(item.fees)} tone="red" />
+          </section>
+
+          <section className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="space-y-5">
+              <DetailPanel title="Pendapatan dari Pesanan" icon="income">
+                {pemasukanRows.map(([label, value]) => (
+                  <MoneyLine key={String(label)} label={String(label)} value={Number(value) || 0} />
+                ))}
+                <TotalLine label="Total Pendapatan" value={formatRupiah(totalPendapatan)} tone="green" />
+              </DetailPanel>
+
+              <DetailPanel title="Informasi Transaksi" icon="info">
+                <SimpleLine label="Order Created Time" value={formatDateDisplay(item.createdDate)} />
+                <SimpleLine label="Order Settled Time" value={formatDateDisplay(item.date)} />
+                <SimpleLine label="Sumber Order" value={isTikTok ? "TikTok Shop" : "Shopee"} />
+                <SimpleLine label="Status HPP" value={item.hppStatus || "-"} />
+                <SimpleLine label="SKU Belum Mapping" value={missingSkus} />
+              </DetailPanel>
+
+              <DetailPanel title="Analisis Profit Internal" icon="profit" tone={profitBg}>
+                <MoneyLine label={`Total HPP (${item.qty || 0} item)`} value={-(Number(item.totalHpp) || 0)} />
+                <TotalLine label="Laba Bersih" value={isFinal ? formatRupiah(item.labaBersih) : "Belum Final"} className={profitTone} />
+                <p className="pt-1 text-[11px] font-semibold text-slate-500">{item.hppRule || "Profit dihitung dari dana cair dikurangi HPP."}</p>
+              </DetailPanel>
+            </div>
+
+            <div className="space-y-5">
+              <DetailPanel title="Rincian Potongan" icon="deduction">
+                {potonganRows.map(([label, value]) => (
+                  <DeductionLine key={String(label)} label={String(label)} value={Number(value) || 0} />
+                ))}
+                <TotalLine label="Total Semua Potongan" value={formatDeduction(item.fees)} className="text-red-600" />
+              </DetailPanel>
+
+              {orderItems.length > 1 && (
+                <DetailPanel title="Item Produk dalam Order" icon="items">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[560px] text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2 font-black">SKU</th>
+                          <th className="px-3 py-2 font-black">Produk</th>
+                          <th className="px-3 py-2 text-right font-black">Qty</th>
+                          <th className="px-3 py-2 text-right font-black">HPP</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {orderItems.map((orderItem: any, idx: number) => (
+                          <tr key={idx}>
+                            <td className="px-3 py-2 font-mono text-slate-600">{orderItem.marketplaceSku || orderItem.sku || orderItem.skuId || "-"}</td>
+                            <td className="px-3 py-2 text-slate-600">{orderItem.productName || orderItem.name || "-"}</td>
+                            <td className="px-3 py-2 text-right font-black">{orderItem.quantity || orderItem.qty || 0}</td>
+                            <td className="px-3 py-2 text-right font-black">{formatRupiah(orderItem.totalHpp || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </DetailPanel>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
 
-// Komponen Pembantu Baris Rincian Modal
-function DetailRow({ label, value, isMinus = false }: any) {
-  if (!value || Math.abs(Number(value)) === 0) return null;
-  const formatRupiah = (angka: any) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Math.abs(Number(angka)));
+function InfoHeader({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex justify-between text-[13px] font-medium text-slate-600">
-      <span>{label}</span>
-      <span className={isMinus ? "text-red-500" : "text-slate-900"}>{isMinus ? "-" : ""}{formatRupiah(value)}</span>
+    <div>
+      <p className="text-xs font-bold text-slate-400">{label}</p>
+      <p className="mt-1 break-all text-sm font-black text-slate-800">{value}</p>
     </div>
   );
+}
+
+function DetailPanel({ title, icon, tone = "bg-white border-slate-200", children }: { title: string; icon?: "income" | "deduction" | "info" | "profit" | "items"; tone?: string; children: ReactNode }) {
+  const iconStyle = icon === "deduction" ? "text-red-500 bg-red-50" : icon === "profit" ? "text-emerald-600 bg-emerald-50" : icon === "info" ? "text-indigo-500 bg-indigo-50" : icon === "items" ? "text-blue-500 bg-blue-50" : "text-emerald-600 bg-emerald-50";
+  const symbol = icon === "deduction" ? "↘" : icon === "profit" ? "▥" : icon === "info" ? "▣" : icon === "items" ? "□" : "⊕";
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${tone}`}>
+      <div className="mb-3 flex items-center gap-2">
+        <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-xs font-black ${iconStyle}`}>{symbol}</span>
+        <h3 className="text-sm font-black text-slate-800">{title}</h3>
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function SimpleLine({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 text-xs">
+      <span className="font-semibold text-slate-500">{label}</span>
+      <span className="max-w-[55%] break-all text-right font-bold text-slate-700">{value}</span>
+    </div>
+  );
+}
+
+function MoneyLine({ label, value }: { label: string; value: number }) {
+  const isNegative = value < 0;
+  return (
+    <div className="flex items-start justify-between gap-4 text-xs">
+      <span className="font-semibold text-slate-500">{label}</span>
+      <span className={`text-right font-bold ${isNegative ? "text-red-500" : "text-slate-700"}`}>{formatRupiah(value)}</span>
+    </div>
+  );
+}
+
+function DeductionLine({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-start justify-between gap-4 text-xs">
+      <span className="font-semibold text-slate-500">{label}</span>
+      <span className="text-right font-bold text-red-500">{formatDeduction(value)}</span>
+    </div>
+  );
+}
+
+function TotalLine({ label, value, tone, className }: { label: string; value: ReactNode; tone?: "green" | "red" | "slate"; className?: string }) {
+  const color = className || (tone === "green" ? "text-emerald-600" : tone === "red" ? "text-red-600" : "text-slate-800");
+  return (
+    <div className="mt-3 flex items-center justify-between gap-4 border-t border-slate-100 pt-3 text-sm">
+      <span className="font-black text-slate-800">{label}</span>
+      <span className={`text-right font-black ${color}`}>{value}</span>
+    </div>
+  );
+}
+
+function TopAmount({ label, value, tone }: { label: string; value: string; tone: "green" | "red" | "slate" }) {
+  const styles = {
+    green: "text-emerald-600 bg-emerald-50",
+    red: "text-red-600 bg-red-50",
+    slate: "text-slate-800 bg-slate-50",
+  };
+  return (
+    <div className="flex min-h-[92px] items-center justify-between gap-4 border-b border-slate-100 px-5 py-4 last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0">
+      <div>
+        <p className="text-xs font-semibold text-slate-400">{label}</p>
+        <p className={`mt-1 text-xl font-black ${tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-600" : "text-slate-900"}`}>{value}</p>
+      </div>
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg font-black ${styles[tone]}`}>{tone === "red" ? "↘" : tone === "green" ? "↑" : "•"}</span>
+    </div>
+  );
+}
+
+function formatDeduction(value: unknown) {
+  const amount = Math.abs(Number(value) || 0);
+  return `-${formatRupiah(amount)}`;
 }

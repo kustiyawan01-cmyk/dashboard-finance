@@ -1,81 +1,108 @@
-import { neon } from '@neondatabase/serverless';
-import { NextResponse } from 'next/server';
+import { neon } from "@neondatabase/serverless";
+import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic"; // WAJIB: Mencegah Next.js melakukan cache mati pada route ini
+export const dynamic = "force-dynamic";
 
-// Menghubungkan ke Neon menggunakan URL dari .env.local
 const sql = neon(process.env.DATABASE_URL!);
 
-// GET: Mengambil data dari Database
+const text = (value: unknown, fallback = "") => String(value ?? fallback).trim();
+const num = (value: unknown, fallback = 0) => Number(value) || fallback;
+
+async function ensureTable() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS shopee_order_items (
+      item_key VARCHAR(300) PRIMARY KEY,
+      order_id VARCHAR(120) NOT NULL,
+      date VARCHAR(80),
+      product_name TEXT,
+      variation_name TEXT,
+      marketplace_sku VARCHAR(180),
+      sku_id VARCHAR(180),
+      variation_id VARCHAR(180),
+      quantity NUMERIC DEFAULT 1,
+      amount NUMERIC DEFAULT 0,
+      status VARCHAR(100),
+      raw_data JSONB,
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+  `;
+}
+
 export async function GET() {
   try {
-    // Kita ubah nama kolom database menjadi camelCase agar cocok dengan frontend
-    const data = await sql`
-      SELECT 
-        order_id AS "orderId", 
-        date, 
-        product_name AS "productName", 
-        sku, 
-        quantity, 
-        amount, 
-        status 
-      FROM shopee_orders 
-      ORDER BY date DESC
-    `;
-    return NextResponse.json(data);
+    await ensureTable();
+    const data = await sql`SELECT * FROM shopee_order_items ORDER BY date DESC, order_id DESC`;
+    return NextResponse.json(data.map((row) => ({
+      platform: "Shopee",
+      orderId: row.order_id,
+      order_id: row.order_id,
+      date: row.date || "-",
+      orderDate: row.date || "-",
+      productName: row.product_name || "-",
+      product_name: row.product_name || "-",
+      variationName: row.variation_name || "-",
+      sku: row.marketplace_sku || row.sku_id || "-",
+      marketplaceSku: row.marketplace_sku || "",
+      skuId: row.sku_id || "",
+      variationId: row.variation_id || "",
+      quantity: Number(row.quantity) || 1,
+      qty: Number(row.quantity) || 1,
+      amount: Number(row.amount) || 0,
+      itemAmount: Number(row.amount) || 0,
+      status: row.status || "Unknown",
+      rawData: row.raw_data || null,
+    })));
   } catch (error: any) {
-    // Tampilkan pesan error ASLI dari database ke Terminal VS Code
-    console.error("Database GET Error Detail:", error?.message || error);
-    return NextResponse.json({ error: "Gagal mengambil data", detail: error?.message }, { status: 500 });
+    console.error("Shopee GET Error:", error?.message || error);
+    return NextResponse.json({ error: "Gagal mengambil data Shopee", detail: error?.message }, { status: 500 });
   }
 }
 
-// POST: Menyimpan data baru ke Database
 export async function POST(request: Request) {
   try {
+    await ensureTable();
     const body = await request.json();
-    
-    // 1. Cek apakah frontend mengirim Array langsung [...] atau Object { orders: [...] }
     const orders = Array.isArray(body) ? body : body.orders;
+    if (!Array.isArray(orders)) return NextResponse.json({ error: "Format data tidak valid" }, { status: 400 });
 
-    if (!orders || !Array.isArray(orders)) {
-      return NextResponse.json({ error: "Format data tidak valid" }, { status: 400 });
-    }
-
-    // Looping untuk menyimpan setiap baris Excel ke Neon Database
-    // Kita gunakan trik UPSERT (ON CONFLICT DO UPDATE)
     for (const order of orders) {
-      // Pastikan mendukung camelCase atau snake_case dari frontend
-      const orderId = order.order_id || order.orderId;
-      
-      // 2. Skip/abaikan jika baris excel kosong (tidak ada Order ID)
-      if (!orderId) continue;
+      const orderId = text(order.orderId || order.order_id || order.noPesanan || order.no_pesanan);
+      if (!orderId || orderId === "-") continue;
+      const marketplaceSku = text(order.marketplaceSku || order.sku || order.sellerSku || order.sku_produk);
+      const skuId = text(order.skuId || order.sku_id || order.idSku);
+      const variationId = text(order.variationId || order.variation_id || order.idVariasi);
+      const productName = text(order.productName || order.product_name || order.namaProduk || order.nama_produk, "-");
+      const itemKey = [orderId, marketplaceSku || skuId || productName, variationId || "default"].join("::");
+      const rawData = JSON.stringify(order || {});
 
-      // 3. Beri nilai default (||) agar database tidak crash karena nilai 'undefined'
       await sql`
-        INSERT INTO shopee_orders (order_id, date, product_name, sku, quantity, amount, status)
-        VALUES (
-          ${orderId}, 
-          ${order.date || new Date().toISOString()}, 
-          ${order.product_name || order.productName || '-'}, 
-          ${order.sku || '-'}, 
-          ${Number(order.quantity) || 1}, 
-          ${Number(order.amount) || 0}, 
-          ${order.status || 'Pending'}
+        INSERT INTO shopee_order_items (
+          item_key, order_id, date, product_name, variation_name, marketplace_sku, sku_id, variation_id,
+          quantity, amount, status, raw_data, updated_at
+        ) VALUES (
+          ${itemKey}, ${orderId}, ${text(order.date || order.orderDate, "-")}, ${productName},
+          ${text(order.variationName || order.variation_name, "-")}, ${marketplaceSku}, ${skuId}, ${variationId},
+          ${num(order.quantity || order.qty, 1)}, ${num(order.amount || order.itemAmount)}, ${text(order.status, "Unknown")},
+          ${rawData}::jsonb, NOW()
         )
-        ON CONFLICT (order_id) 
-        DO UPDATE SET 
-          status = EXCLUDED.status, 
+        ON CONFLICT (item_key) DO UPDATE SET
+          date = EXCLUDED.date,
+          product_name = EXCLUDED.product_name,
+          variation_name = EXCLUDED.variation_name,
+          marketplace_sku = EXCLUDED.marketplace_sku,
+          sku_id = EXCLUDED.sku_id,
+          variation_id = EXCLUDED.variation_id,
+          quantity = EXCLUDED.quantity,
           amount = EXCLUDED.amount,
-          sku = EXCLUDED.sku,
-          product_name = EXCLUDED.product_name;
+          status = EXCLUDED.status,
+          raw_data = EXCLUDED.raw_data,
+          updated_at = NOW();
       `;
     }
-    
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    // 4. Log error lebih detail ke console server agar tahu apa yang salah
-    console.error("Database Error Detail:", error?.message || error);
-    return NextResponse.json({ error: "Gagal menyimpan data", detail: error?.message }, { status: 500 });
+    console.error("Shopee POST Error:", error?.message || error);
+    return NextResponse.json({ error: "Gagal menyimpan data Shopee", detail: error?.message }, { status: 500 });
   }
 }

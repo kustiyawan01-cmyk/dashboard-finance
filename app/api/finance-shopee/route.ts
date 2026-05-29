@@ -1,70 +1,94 @@
-import { neon } from '@neondatabase/serverless';
-import { NextResponse } from 'next/server';
+import { neon } from "@neondatabase/serverless";
+import { NextResponse } from "next/server";
 
-// WAJIB DITAMBAHKAN: Mencegah Next.js melakukan caching pada route ini
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 const sql = neon(process.env.DATABASE_URL!);
 
+const text = (value: unknown, fallback = "") => String(value ?? fallback).trim();
+const num = (value: unknown) => Number(value) || 0;
+const arr = (value: unknown) => Array.isArray(value) ? value : [];
+
+async function ensureTable() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS shopee_finances (
+      order_id VARCHAR(120) PRIMARY KEY,
+      order_status VARCHAR(80),
+      created_date VARCHAR(80),
+      date VARCHAR(80),
+      qty NUMERIC DEFAULT 0,
+      sku VARCHAR(180),
+      product_name TEXT,
+      hpp_per_item NUMERIC DEFAULT 0,
+      total_hpp NUMERIC DEFAULT 0,
+      net NUMERIC DEFAULT 0,
+      laba_bersih NUMERIC DEFAULT 0,
+      fees NUMERIC DEFAULT 0,
+      harga_produk NUMERIC DEFAULT 0,
+      hpp_status VARCHAR(80) DEFAULT 'Valid',
+      hpp_missing_skus JSONB DEFAULT '[]'::jsonb,
+      hpp_rule TEXT,
+      order_items JSONB DEFAULT '[]'::jsonb,
+      details JSONB DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+  `;
+
+  await sql`
+    ALTER TABLE shopee_finances
+    ADD COLUMN IF NOT EXISTS hpp_status VARCHAR(80) DEFAULT 'Valid',
+    ADD COLUMN IF NOT EXISTS hpp_missing_skus JSONB DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS hpp_rule TEXT,
+    ADD COLUMN IF NOT EXISTS order_items JSONB DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+  `;
+}
+
 export async function GET() {
   try {
-    // 1. AUTO-CREATE: Akan otomatis membuat tabel baru dengan struktur yang 100% benar
-    await sql`
-      CREATE TABLE IF NOT EXISTS shopee_finances (
-        order_id VARCHAR(100) PRIMARY KEY,
-        order_status VARCHAR(50),
-        created_date VARCHAR(50),
-        date VARCHAR(50),
-        qty INTEGER,
-        sku VARCHAR(100),
-        product_name TEXT,
-        hpp_per_item NUMERIC,
-        total_hpp NUMERIC,
-        net NUMERIC,
-        laba_bersih NUMERIC,
-        fees NUMERIC,
-        harga_produk NUMERIC,
-        details JSONB
-      );
-    `;
-
-    // Pastikan kolom date ditambahkan jika tabel versi lama sudah terlanjur dibuat
-    await sql`ALTER TABLE shopee_finances ADD COLUMN IF NOT EXISTS date VARCHAR(50);`;
-
+    await ensureTable();
     const data = await sql`SELECT * FROM shopee_finances ORDER BY date DESC`;
-    
-    const formattedData = data.map(row => ({
-      orderId: row.order_id,
-      orderStatus: row.order_status,
-      createdDate: row.created_date,
-      date: row.date,
-      qty: row.qty,
-      sku: row.sku,
-      productName: row.product_name,
-      hppPerItem: Number(row.hpp_per_item),
-      totalHpp: Number(row.total_hpp),
-      net: Number(row.net),
-      labaBersih: Number(row.laba_bersih),
-      fees: Number(row.fees),
-      hargaProduk: Number(row.harga_produk),
-      ...(row.details || {}) 
-    }));
 
-    return NextResponse.json(formattedData);
-  } catch (error) {
-    console.error("GET Error:", error);
-    return NextResponse.json({ error: "Gagal mengambil data" }, { status: 500 });
+    return NextResponse.json(data.map((row) => ({
+      platform: "Shopee",
+      orderId: row.order_id,
+      orderStatus: row.order_status || "Selesai",
+      createdDate: row.created_date || "-",
+      date: row.date || "-",
+      qty: Number(row.qty) || 0,
+      sku: row.sku || "-",
+      productName: row.product_name || "-",
+      hppPerItem: Number(row.hpp_per_item) || 0,
+      totalHpp: Number(row.total_hpp) || 0,
+      net: Number(row.net) || 0,
+      labaBersih: Number(row.laba_bersih) || 0,
+      fees: Number(row.fees) || 0,
+      hargaProduk: Number(row.harga_produk) || 0,
+      hppStatus: row.hpp_status || "Valid",
+      hppMissingSkus: Array.isArray(row.hpp_missing_skus) ? row.hpp_missing_skus : [],
+      hppRule: row.hpp_rule || "",
+      orderItems: Array.isArray(row.order_items) ? row.order_items : [],
+      isFinalProfit: (row.hpp_status || "Valid") !== "Belum Mapping",
+      ...(row.details || {}),
+    })));
+  } catch (error: any) {
+    console.error("GET finance-shopee error:", error?.message || error);
+    return NextResponse.json({ error: "Gagal mengambil finance Shopee", detail: error?.message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const finances = await request.json();
+    await ensureTable();
+    const body = await request.json();
+    const finances = Array.isArray(body) ? body : body.finances;
+    if (!Array.isArray(finances)) return NextResponse.json({ error: "Format finance Shopee tidak valid" }, { status: 400 });
 
     for (const item of finances) {
-      if (!item.orderId) continue; // Skip jika tidak ada Order ID
+      if (!item.orderId) continue;
 
-      // Jadikan String agar Neon SQL bisa menerimanya sebagai JSONB dengan aman
+      const missingSkusJson = JSON.stringify(arr(item.hppMissingSkus));
+      const orderItemsJson = JSON.stringify(arr(item.orderItems));
       const detailsStr = JSON.stringify({
         ongkirPembeli: item.ongkirPembeli || 0,
         subsidiOngkir: item.subsidiOngkir || 0,
@@ -89,31 +113,20 @@ export async function POST(request: Request) {
         retur: item.retur || 0,
         transfer: item.transfer || 0,
         materai: item.materai || 0,
-        penyesuaianSistem: item.penyesuaianSistem || 0
+        penyesuaianSistem: item.penyesuaianSistem || 0,
       });
 
-      // Tambahkan Fallback (||) di setiap value agar tidak crash jika datanya undefined
       await sql`
         INSERT INTO shopee_finances (
-          order_id, order_status, created_date, date, qty, sku, product_name, 
-          hpp_per_item, total_hpp, net, laba_bersih, fees, harga_produk, details
+          order_id, order_status, created_date, date, qty, sku, product_name,
+          hpp_per_item, total_hpp, net, laba_bersih, fees, harga_produk,
+          hpp_status, hpp_missing_skus, hpp_rule, order_items, details, updated_at
         ) VALUES (
-          ${item.orderId}, 
-          ${item.orderStatus || '-'}, 
-          ${item.createdDate || '-'}, 
-          ${item.date || '-'}, 
-          ${Number(item.qty) || 0}, 
-          ${item.sku || '-'}, 
-          ${item.productName || '-'}, 
-          ${Number(item.hppPerItem) || 0}, 
-          ${Number(item.totalHpp) || 0}, 
-          ${Number(item.net) || 0}, 
-          ${Number(item.labaBersih) || 0}, 
-          ${Number(item.fees) || 0}, 
-          ${Number(item.hargaProduk) || 0}, 
-          ${detailsStr}::jsonb
+          ${text(item.orderId)}, ${text(item.orderStatus, "Selesai")}, ${text(item.createdDate, "-")}, ${text(item.date, "-")}, ${num(item.qty)}, ${text(item.sku, "-")}, ${text(item.productName, "-")},
+          ${num(item.hppPerItem)}, ${num(item.totalHpp)}, ${num(item.net)}, ${num(item.labaBersih)}, ${num(item.fees)}, ${num(item.hargaProduk)},
+          ${text(item.hppStatus, "Valid")}, ${missingSkusJson}::jsonb, ${text(item.hppRule)}, ${orderItemsJson}::jsonb, ${detailsStr}::jsonb, NOW()
         )
-        ON CONFLICT (order_id) DO UPDATE SET 
+        ON CONFLICT (order_id) DO UPDATE SET
           order_status = EXCLUDED.order_status,
           created_date = EXCLUDED.created_date,
           date = EXCLUDED.date,
@@ -126,14 +139,18 @@ export async function POST(request: Request) {
           laba_bersih = EXCLUDED.laba_bersih,
           fees = EXCLUDED.fees,
           harga_produk = EXCLUDED.harga_produk,
-          details = EXCLUDED.details;
+          hpp_status = EXCLUDED.hpp_status,
+          hpp_missing_skus = EXCLUDED.hpp_missing_skus,
+          hpp_rule = EXCLUDED.hpp_rule,
+          order_items = EXCLUDED.order_items,
+          details = EXCLUDED.details,
+          updated_at = NOW();
       `;
     }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    // Log error asli ke terminal agar mudah dilacak
-    console.error("POST Error Details:", error?.message || error);
-    return NextResponse.json({ error: "Gagal menyimpan data", message: error?.message }, { status: 500 });
+    console.error("POST finance-shopee error:", error?.message || error);
+    return NextResponse.json({ error: "Gagal menyimpan finance Shopee", detail: error?.message }, { status: 500 });
   }
 }
