@@ -1,351 +1,725 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { 
-  Calendar, Bell, ChevronDown, Package, Receipt, Wallet, TrendingUp, 
-  Briefcase, Megaphone, Wrench, Users2, Truck, FileBox, ShoppingBag, TrendingDown, CircleDollarSign
+import {
+  Banknote,
+  Bell,
+  Briefcase,
+  Calendar,
+  CircleDollarSign,
+  FileBox,
+  Megaphone,
+  Package,
+  Receipt,
+  ShoppingBag,
+  TrendingDown,
+  TrendingUp,
+  Truck,
+  Users2,
+  Wallet,
+  Wrench
 } from "lucide-react";
 
-// WAJIB: Import ApexCharts secara dinamis
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
+
+type DateRange = {
+  start: string;
+  end: string;
+};
+
+type TrendRow = {
+  name: string;
+  shopee: number;
+  tiktok: number;
+  total: number;
+  profit: number;
+  margin: number;
+};
+
+type TopOrderRow = {
+  name: string;
+  marketplace: "Shopee" | "TikTok";
+  omzet: number;
+  profit: number;
+};
+
+type InternalCosts = {
+  operasional: number;
+  marketing: number;
+  maintenance: number;
+  karyawan: number;
+  beliBahan: number;
+  gaji: number;
+  perlengkapan: number;
+};
+
+type DashboardStats = {
+  omzetShopee: number;
+  omzetTikTok: number;
+  netShopee: number;
+  netTikTok: number;
+  hppShopee: number;
+  hppTikTok: number;
+  labaShopee: number;
+  labaTikTok: number;
+  pengeluaranShopee: number;
+  pengeluaranTikTok: number;
+  orderShopee: number;
+  orderTikTok: number;
+  adminKomisi: number;
+  iklanPromosi: number;
+  ongkirVoucher: number;
+  pajak: number;
+  lainnya: number;
+  diskonPenjual: number;
+  biayaGmv: number;
+  returBatal: number;
+  hppKosong: number;
+  trendData: TrendRow[];
+  profitMarginData: TrendRow[];
+  topOrders: TopOrderRow[];
+  internalCosts: InternalCosts;
+};
+
+const emptyStats: DashboardStats = {
+  omzetShopee: 0,
+  omzetTikTok: 0,
+  netShopee: 0,
+  netTikTok: 0,
+  hppShopee: 0,
+  hppTikTok: 0,
+  labaShopee: 0,
+  labaTikTok: 0,
+  pengeluaranShopee: 0,
+  pengeluaranTikTok: 0,
+  orderShopee: 0,
+  orderTikTok: 0,
+  adminKomisi: 0,
+  iklanPromosi: 0,
+  ongkirVoucher: 0,
+  pajak: 0,
+  lainnya: 0,
+  diskonPenjual: 0,
+  biayaGmv: 0,
+  returBatal: 0,
+  hppKosong: 0,
+  trendData: [],
+  profitMarginData: [],
+  topOrders: [],
+  internalCosts: {
+    operasional: 0,
+    marketing: 0,
+    maintenance: 0,
+    karyawan: 0,
+    beliBahan: 0,
+    gaji: 0,
+    perlengkapan: 0
+  }
+};
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
-  
-  // STATE FILTER TANGGAL
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [dateRange, setDateRange] = useState<DateRange>({ start: "", end: "" });
+  const [tempDateRange, setTempDateRange] = useState<DateRange>({ start: "", end: "" });
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [tempDateRange, setTempDateRange] = useState({ start: '', end: '' });
+  const [stats, setStats] = useState<DashboardStats>(emptyStats);
 
-  const [stats, setStats] = useState({
-    omzetShopee: 0, omzetTikTok: 0,
-    netShopee: 0, netTikTok: 0,
-    labaShopee: 0, labaTikTok: 0,
-    pengeluaranShopee: 0, pengeluaranTikTok: 0,
-    orderShopee: 0, orderTikTok: 0,
-    adminKomisi: 0, iklanPromosi: 0, ongkirVoucher: 0, pajak: 0, lainnya: 0,
-    trendData: [] as any[],
-    profitMarginData: [] as any[],
-    topOrders: [] as any[],
-    internalCosts: { operasional: 0, marketing: 0, maintenance: 0, karyawan: 0, beliBahan: 0, gaji: 0, perlengkapan: 0 }
-  });
+  const formatRp = (angka: number) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      maximumFractionDigits: 0
+    }).format(Number(angka) || 0);
+  };
+
+  const normalizeDate = (value: unknown) => {
+    if (!value || value === "-") return "";
+
+    const text = String(value).trim().split(" ")[0];
+
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(text)) {
+      const [y, m, d] = text.split("-");
+      return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+
+    if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(text)) {
+      const [y, m, d] = text.split("/");
+      return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(text)) {
+      const [d, m, y] = text.split("/");
+      return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+
+    if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(text)) {
+      const [d, m, y] = text.split("-");
+      return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+
+    if (!Number.isNaN(Number(text)) && Number(text) > 20000) {
+      const date = new Date(Math.round((Number(text) - 25569) * 86400 * 1000));
+      return date.toISOString().split("T")[0];
+    }
+
+    return text;
+  };
+
+  const isInDateRange = (dateValue: unknown) => {
+    const normalized = normalizeDate(dateValue);
+
+    if (!normalized) return true;
+    if (dateRange.start && normalized < dateRange.start) return false;
+    if (dateRange.end && normalized > dateRange.end) return false;
+
+    return true;
+  };
+
+  const getNumber = (...values: unknown[]) => {
+    for (const value of values) {
+      const number = Number(value || 0);
+      if (Number.isFinite(number) && number !== 0) return number;
+    }
+
+    return 0;
+  };
+
+  const getAbs = (...values: unknown[]) => Math.abs(getNumber(...values));
+
+  const isCancelledOrRefund = (item: any) => {
+    const status = String(item.orderStatus || item.status || item.hppStatus || "").toLowerCase();
+
+    return (
+      status.includes("batal") ||
+      status.includes("cancel") ||
+      status.includes("retur") ||
+      status.includes("refund")
+    );
+  };
+
+  const isTikTokNonOrderCharge = (item: any) => {
+    const status = String(item.orderStatus || "").toLowerCase();
+    const hppStatus = String(item.hppStatus || "").toLowerCase();
+    const productName = String(item.productName || "").toLowerCase();
+    const orderId = String(item.orderId || "").toLowerCase();
+
+    return (
+      hppStatus.includes("non order") ||
+      status.includes("gmv") ||
+      status.includes("iklan") ||
+      productName.includes("gmv") ||
+      productName.includes("iklan") ||
+      orderId.includes("gmvpaydeduction")
+    );
+  };
 
   const handlePresetDate = (days: number) => {
     const end = new Date();
     const start = new Date();
+
     start.setDate(end.getDate() - days);
-    const formatDate = (d: Date) => d.toISOString().split('T')[0];
-    setTempDateRange({ start: formatDate(start), end: formatDate(end) });
+
+    const formatDate = (date: Date) => date.toISOString().split("T")[0];
+
+    setTempDateRange({
+      start: formatDate(start),
+      end: formatDate(end)
+    });
   };
 
   useEffect(() => {
     const fetchRealData = async () => {
       setLoading(true);
+
       try {
         const [resShopee, resTikTok, resExpenses] = await Promise.all([
-          fetch('/api/finance-shopee').catch(() => null),
-          fetch('/api/finance-tiktok').catch(() => null),
-          fetch('/api/expenses').catch(() => null)
+          fetch("/api/finance-shopee").catch(() => null),
+          fetch("/api/finance-tiktok").catch(() => null),
+          fetch("/api/expenses").catch(() => null)
         ]);
 
-        let sOmzet = 0, sNet = 0, sLaba = 0, sOrders = 0, sPengeluaran = 0;
-        let tOmzet = 0, tNet = 0, tLaba = 0, tOrders = 0, tPengeluaran = 0;
-        let cAdminKomisi = 0, cIklan = 0, cOngkirVoucher = 0, cPajak = 0, cLainnya = 0;
-        
-        const trendMap = new Map();
-        const topOrdersList: any[] = [];
+        let sOmzet = 0;
+        let sNet = 0;
+        let sHpp = 0;
+        let sLaba = 0;
+        let sOrders = 0;
+        let sPengeluaran = 0;
 
-        // Helper: Standarisasi format tanggal ke YYYY-MM-DD untuk filter
-        const normalizeDate = (dateStr: string) => {
-          if (!dateStr || dateStr === "-") return null;
-          const d = dateStr.split(" ")[0];
-          if (d.includes("/")) {
-            const parts = d.split("/");
-            if (parts.length === 3 && parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-          }
-          return d;
+        let tOmzet = 0;
+        let tNet = 0;
+        let tHpp = 0;
+        let tLaba = 0;
+        let tOrders = 0;
+        let tPengeluaran = 0;
+
+        let cAdminKomisi = 0;
+        let cIklan = 0;
+        let cOngkirVoucher = 0;
+        let cPajak = 0;
+        let cLainnya = 0;
+        let cDiskonPenjual = 0;
+        let cBiayaGmv = 0;
+        let cReturBatal = 0;
+        let cHppKosong = 0;
+
+        let op = 0;
+        let mkt = 0;
+        let mtc = 0;
+        let krw = 0;
+        let bhn = 0;
+        let gj = 0;
+        let plg = 0;
+
+        const trendMap = new Map<string, TrendRow>();
+        const topOrdersList: TopOrderRow[] = [];
+
+        const touchTrend = (date: string) => {
+          const normalized = normalizeDate(date);
+          const key = normalized || "-";
+          const existing = trendMap.get(key);
+
+          if (existing) return existing;
+
+          const fresh: TrendRow = {
+            name: key,
+            shopee: 0,
+            tiktok: 0,
+            total: 0,
+            profit: 0,
+            margin: 0
+          };
+
+          trendMap.set(key, fresh);
+
+          return fresh;
         };
 
-        // 1. OLAH DATA SHOPEE
         if (resShopee && resShopee.ok) {
           const shopee = await resShopee.json();
-          shopee.forEach((item: any) => {
-            const nd = normalizeDate(item.date || item.createdDate);
-            if (dateRange.start && dateRange.end && nd) {
-              if (nd < dateRange.start || nd > dateRange.end) return; // Skip jika di luar tanggal
-            }
 
-            sOrders++;
-            const omzet = Number(item.hargaProduk || 0);
-            const net = Number(item.net || 0);
-            const laba = Number(item.labaBersih || 0);
-            const fees = Number(item.fees || 0);
-            
-            sOmzet += omzet; sNet += net; sLaba += laba; sPengeluaran += fees;
+          if (Array.isArray(shopee)) {
+            shopee.forEach((item: any) => {
+              const date = item.date || item.createdDate;
 
-            cAdminKomisi += (Number(item.admin) || 0) + (Number(item.layanan) || 0) + (Number(item.ams) || 0) + (Number(item.komisiAffiliate) || 0);
-            cIklan += (Number(item.shopeeAds) || 0);
-            cOngkirVoucher += (Number(item.ongkirXtra) || 0) + (Number(item.cashbackXtra) || 0) + (Number(item.voucherPenjual) || 0) + (Number(item.cashbackPenjual) || 0);
-            cPajak += (Number(item.pajak) || 0);
-            cLainnya += (Number(item.biayaCod) || 0) + (Number(item.transfer) || 0) + (Number(item.materai) || 0) + (Number(item.penalti) || 0) + (Number(item.penyesuaianSistem) || 0) + (Number(item.refund) || 0) + (Number(item.retur) || 0);
+              if (!isInDateRange(date)) return;
 
-            if (omzet > 0) topOrdersList.push({ name: item.orderId, marketplace: 'Shopee', omzet, profit: laba });
+              const omzet = getNumber(item.hargaProduk, item.revenue, item.subtotal);
+              const net = getNumber(item.net);
+              const hpp = getNumber(item.totalHpp);
+              const laba = getNumber(item.labaBersih);
+              const fees = getAbs(item.fees);
 
-            if (nd) {
-              const tData = trendMap.get(nd) || { name: nd, shopee: 0, tiktok: 0, total: 0, profit: 0 };
-              tData.shopee += omzet; tData.total += omzet; tData.profit += laba;
-              trendMap.set(nd, tData);
-            }
-          });
+              sOrders += 1;
+              sOmzet += omzet;
+              sNet += net;
+              sHpp += hpp;
+              sLaba += laba;
+              sPengeluaran += fees;
+
+              cAdminKomisi += getAbs(item.admin) + getAbs(item.layanan) + getAbs(item.ams) + getAbs(item.komisiAffiliate);
+              cIklan += getAbs(item.shopeeAds);
+              cOngkirVoucher += getAbs(item.ongkirXtra) + getAbs(item.cashbackXtra) + getAbs(item.voucherPenjual) + getAbs(item.cashbackPenjual);
+              cPajak += getAbs(item.pajak);
+              cLainnya += getAbs(item.biayaCod) + getAbs(item.transfer) + getAbs(item.materai) + getAbs(item.penalti) + getAbs(item.penyesuaianSistem) + getAbs(item.refund) + getAbs(item.retur);
+
+              if (isCancelledOrRefund(item)) cReturBatal += 1;
+              if (String(item.hppStatus || "").toLowerCase().includes("belum")) cHppKosong += 1;
+
+              if (omzet > 0) {
+                topOrdersList.push({
+                  name: String(item.orderId || "-"),
+                  marketplace: "Shopee",
+                  omzet,
+                  profit: laba
+                });
+              }
+
+              const trend = touchTrend(date);
+              trend.shopee += omzet;
+              trend.total += omzet;
+              trend.profit += laba;
+            });
+          }
         }
 
-        // 2. OLAH DATA TIKTOK
         if (resTikTok && resTikTok.ok) {
           const tiktok = await resTikTok.json();
-          tiktok.forEach((item: any) => {
-            const nd = normalizeDate(item.date || item.createdDate);
-            if (dateRange.start && dateRange.end && nd) {
-              if (nd < dateRange.start || nd > dateRange.end) return; // Skip jika di luar tanggal
-            }
 
-            tOrders++;
-            const omzet = Number(item.subtotal || item.revenue || 0);
-            const net = Number(item.net || 0);
-            const laba = Number(item.labaBersih || 0);
-            const fees = Number(item.fees || 0);
+          if (Array.isArray(tiktok)) {
+            tiktok.forEach((item: any) => {
+              const date = item.date || item.createdDate;
 
-            tOmzet += omzet; tNet += net; tLaba += laba; tPengeluaran += fees;
+              if (!isInDateRange(date)) return;
 
-            cAdminKomisi += (Number(item.platformFee) || 0) + (Number(item.paymentFee) || 0) + (Number(item.affiliateFee) || 0);
-            cOngkirVoucher += (Number(item.freeShippingFee) || 0) + (Number(item.sellerDiscount) || 0);
-            cPajak += (Number(item.tax) || 0);
-            cLainnya += (Number(item.codFee) || 0) + (Number(item.adjustment) || 0);
+              const nonOrderCharge = isTikTokNonOrderCharge(item);
+              const net = getNumber(item.net);
+              const hpp = getNumber(item.totalHpp);
+              const laba = getNumber(item.labaBersih);
+              const fees = getAbs(item.fees);
 
-            if (omzet > 0) topOrdersList.push({ name: item.orderId, marketplace: 'TikTok', omzet, profit: laba });
+              if (nonOrderCharge) {
+                const gmvAmount = getAbs(item.fees, item.net, item.adjustment);
 
-            if (nd) {
-              const tData = trendMap.get(nd) || { name: nd, shopee: 0, tiktok: 0, total: 0, profit: 0 };
-              tData.tiktok += omzet; tData.total += omzet; tData.profit += laba;
-              trendMap.set(nd, tData);
-            }
-          });
+                tPengeluaran += gmvAmount;
+                tLaba += laba;
+                cIklan += gmvAmount;
+                cBiayaGmv += gmvAmount;
+
+                const trend = touchTrend(date);
+                trend.profit += laba;
+
+                return;
+              }
+
+              const omzet = getNumber(item.tiktokSubtotalAfterDiscount, item.revenue, item.subtotal);
+              const sellerDiscount = getAbs(item.tiktokSellerDiscount, item.sellerDiscount);
+
+              tOrders += 1;
+              tOmzet += omzet;
+              tNet += net;
+              tHpp += hpp;
+              tLaba += laba;
+              tPengeluaran += fees;
+
+              cAdminKomisi +=
+                getAbs(item.tiktokPlatformCommission, item.platformFee) +
+                getAbs(item.tiktokPaymentFee, item.paymentFee) +
+                getAbs(item.tiktokAffiliateCommission, item.affiliateFee) +
+                getAbs(item.tiktokPartnerAffiliateCommission) +
+                getAbs(item.tiktokShopAdsAffiliateCommission) +
+                getAbs(item.tiktokDynamicCommission) +
+                getAbs(item.tiktokOrderProcessingFee);
+
+              cIklan += getAbs(item.tiktokGmvMaxAdsFee);
+
+              cOngkirVoucher +=
+                getAbs(item.tiktokShippingFee) +
+                getAbs(item.tiktokFreeShippingProgramFee, item.freeShippingFee) +
+                getAbs(item.tiktokCashbackBonusFee) +
+                getAbs(item.tiktokVoucherXtraFee) +
+                getAbs(item.tiktokGmvMaxVoucher);
+
+              cPajak += getAbs(item.tiktokTaxPph22, item.tax) + getAbs(item.tiktokGmvMaxVoucherTax);
+
+              cLainnya +=
+                getAbs(item.tiktokCodFee, item.codFee) +
+                getAbs(item.tiktokLiveServiceFee) +
+                getAbs(item.tiktokEamsFee) +
+                getAbs(item.adjustment);
+
+              cDiskonPenjual += sellerDiscount;
+
+              if (isCancelledOrRefund(item)) cReturBatal += 1;
+              if (String(item.hppStatus || "").toLowerCase().includes("belum")) cHppKosong += 1;
+
+              if (omzet > 0) {
+                topOrdersList.push({
+                  name: String(item.orderId || "-"),
+                  marketplace: "TikTok",
+                  omzet,
+                  profit: laba
+                });
+              }
+
+              const trend = touchTrend(date);
+              trend.tiktok += omzet;
+              trend.total += omzet;
+              trend.profit += laba;
+            });
+          }
         }
 
-        // 3. OLAH PENGELUARAN KANTOR INTERNAL (DIHUBUNGKAN KE DATA REAL)
-        let op=0, mkt=0, mtc=0, krw=0, bhn=0, gj=0, plg=0;
         if (resExpenses && resExpenses.ok) {
-          const exps = await resExpenses.json();
-          exps.forEach((ex: any) => {
-            // Coba ambil dari berbagai kemungkinan nama kolom database
-            const rawDate = ex.tanggal || ex.date || ex.created_at;
-            let nd = null;
-            if (rawDate) {
-              // Jika formatnya sudah standar ISO (2026-05-12T...)
-              nd = rawDate.split('T')[0];
-            }
-            
-            if (dateRange.start && dateRange.end && nd) {
-              if (nd < dateRange.start || nd > dateRange.end) return; // Skip jika di luar tanggal
-            }
+          const expenses = await resExpenses.json();
 
-            const val = Number(ex.jumlah || ex.amount || 0);
-            const cat = String(ex.kategori || ex.category || "").toLowerCase();
-            
-            if(cat.includes("operasional")) op+=val;
-            else if(cat.includes("marketing") || cat.includes("iklan")) mkt+=val;
-            else if(cat.includes("maintenance") || cat.includes("perbaikan")) mtc+=val;
-            else if(cat.includes("karyawan") && !cat.includes("gaji")) krw+=val;
-            else if(cat.includes("bahan") || cat.includes("produksi")) bhn+=val;
-            else if(cat.includes("gaji")) gj+=val;
-            else if(cat.includes("perlengkapan") || cat.includes("atk")) plg+=val;
-            else op+=val; // Jika kategorinya "Lainnya" atau tidak dikenali, masuk ke Operasional
-          });
+          if (Array.isArray(expenses)) {
+            expenses.forEach((expense: any) => {
+              const rawDate = expense.tanggal || expense.date || expense.created_at;
+
+              if (!isInDateRange(rawDate)) return;
+
+              const value = Number(expense.jumlah || expense.amount || 0);
+              const category = String(expense.kategori || expense.category || "").toLowerCase();
+
+              if (category.includes("operasional")) op += value;
+              else if (category.includes("marketing") || category.includes("iklan")) mkt += value;
+              else if (category.includes("maintenance") || category.includes("perbaikan")) mtc += value;
+              else if (category.includes("karyawan") && !category.includes("gaji")) krw += value;
+              else if (category.includes("bahan") || category.includes("produksi")) bhn += value;
+              else if (category.includes("gaji")) gj += value;
+              else if (category.includes("perlengkapan") || category.includes("atk")) plg += value;
+              else op += value;
+            });
+          }
         }
 
-        // 4. SUSUN TREND DATA
         const finalTrendData = Array.from(trendMap.values())
           .sort((a, b) => a.name.localeCompare(b.name))
-          .map(d => ({
-            ...d,
-            margin: d.total > 0 ? Number(((d.profit / d.total) * 100).toFixed(1)) : 0
+          .map((item) => ({
+            ...item,
+            margin: item.total > 0 ? Number(((item.profit / item.total) * 100).toFixed(1)) : 0
           }));
 
         setStats({
-          omzetShopee: sOmzet, omzetTikTok: tOmzet,
-          netShopee: sNet, netTikTok: tNet,
-          labaShopee: sLaba, labaTikTok: tLaba,
-          pengeluaranShopee: sPengeluaran, pengeluaranTikTok: tPengeluaran,
-          orderShopee: sOrders, orderTikTok: tOrders,
-          adminKomisi: cAdminKomisi, iklanPromosi: cIklan, ongkirVoucher: cOngkirVoucher, pajak: cPajak, lainnya: cLainnya,
-          trendData: finalTrendData.length > 0 ? finalTrendData : [{ name: '-', shopee: 0, tiktok: 0, total: 0, profit: 0, margin: 0 }],
+          omzetShopee: sOmzet,
+          omzetTikTok: tOmzet,
+          netShopee: sNet,
+          netTikTok: tNet,
+          hppShopee: sHpp,
+          hppTikTok: tHpp,
+          labaShopee: sLaba,
+          labaTikTok: tLaba,
+          pengeluaranShopee: sPengeluaran,
+          pengeluaranTikTok: tPengeluaran,
+          orderShopee: sOrders,
+          orderTikTok: tOrders,
+          adminKomisi: cAdminKomisi,
+          iklanPromosi: cIklan,
+          ongkirVoucher: cOngkirVoucher,
+          pajak: cPajak,
+          lainnya: cLainnya,
+          diskonPenjual: cDiskonPenjual,
+          biayaGmv: cBiayaGmv,
+          returBatal: cReturBatal,
+          hppKosong: cHppKosong,
+          trendData: finalTrendData.length > 0
+            ? finalTrendData
+            : [{ name: "-", shopee: 0, tiktok: 0, total: 0, profit: 0, margin: 0 }],
           profitMarginData: finalTrendData,
-          // Menampilkan Top Orders berdasarkan urutan waktu masuknya ke sistem (Terbaru)
-          topOrders: topOrdersList.reverse().sort((a, b) => b.profit - a.profit).slice(0, 5),
-          internalCosts: { operasional: op, marketing: mkt, maintenance: mtc, karyawan: krw, beliBahan: bhn, gaji: gj, perlengkapan: plg }
+          topOrders: topOrdersList.sort((a, b) => b.profit - a.profit).slice(0, 5),
+          internalCosts: {
+            operasional: op,
+            marketing: mkt,
+            maintenance: mtc,
+            karyawan: krw,
+            beliBahan: bhn,
+            gaji: gj,
+            perlengkapan: plg
+          }
         });
-
-      } catch (error) { console.error(error); }
-      finally { setLoading(false); }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
     };
+
     fetchRealData();
-  }, [dateRange]); // Re-fetch data saat Filter Tanggal berubah
+  }, [dateRange]);
 
-  const formatRp = (angka: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(angka);
-
-  // Perhitungan Global Dashboard
   const totalOmzet = stats.omzetShopee + stats.omzetTikTok;
+  const totalNet = stats.netShopee + stats.netTikTok;
+  const totalHpp = stats.hppShopee + stats.hppTikTok;
   const totalPengeluaranMP = stats.pengeluaranShopee + stats.pengeluaranTikTok;
-  const totalPengeluaranInternal = Object.values(stats.internalCosts).reduce((a, b) => a + b, 0);
-  const totalPengeluaranAll = totalPengeluaranMP + totalPengeluaranInternal;
-  
-  const totalLabaBersihMp = stats.labaShopee + stats.labaTikTok;
-  const trueNetProfit = totalLabaBersihMp - totalPengeluaranInternal;
-  const totalOrder = stats.orderShopee + stats.orderTikTok;
+  const totalPembelianBahan = stats.internalCosts.beliBahan;
 
-  // ==========================================
-  // CONFIGURASI APEXCHARTS
-  // ==========================================
+  const totalPengeluaranInternalOperasional =
+    stats.internalCosts.operasional +
+    stats.internalCosts.marketing +
+    stats.internalCosts.maintenance +
+    stats.internalCosts.karyawan +
+    stats.internalCosts.gaji +
+    stats.internalCosts.perlengkapan;
+
+  const totalPengeluaranAll = totalPengeluaranMP + totalPengeluaranInternalOperasional;
+  const totalLabaBersihMp = stats.labaShopee + stats.labaTikTok;
+  const trueNetProfit = totalLabaBersihMp - totalPengeluaranInternalOperasional;
+  const totalOrder = stats.orderShopee + stats.orderTikTok;
+  const marginBersih = totalOmzet > 0 ? (trueNetProfit / totalOmzet) * 100 : 0;
+
   const chartMarketplace = {
     series: [stats.omzetShopee, stats.omzetTikTok],
     options: {
-      chart: { type: 'donut', fontFamily: 'inherit' },
-      labels: ['Shopee', 'TikTok Shop'],
-      colors: ['#EE4D2D', '#000000'],
+      chart: { type: "donut", fontFamily: "inherit" },
+      labels: ["Shopee", "TikTok Shop"],
+      colors: ["#EE4D2D", "#000000"],
       dataLabels: { enabled: false },
-      plotOptions: { pie: { donut: { size: '75%' } } },
+      plotOptions: { pie: { donut: { size: "75%" } } },
       stroke: { width: 0 },
       legend: { show: false },
-      tooltip: { style: { fontSize: '13px' }, y: { formatter: (val: number) => formatRp(val) } }
+      tooltip: {
+        style: { fontSize: "13px" },
+        y: { formatter: (value: number) => formatRp(value) }
+      }
     } as ApexCharts.ApexOptions
   };
 
   const chartTrend = {
     series: [
-      { name: 'Total Omzet', data: stats.trendData.map(d => d.total) },
-      { name: 'Shopee', data: stats.trendData.map(d => d.shopee) },
-      { name: 'TikTok', data: stats.trendData.map(d => d.tiktok) }
+      { name: "Total Omzet", data: stats.trendData.map((item) => item.total) },
+      { name: "Shopee", data: stats.trendData.map((item) => item.shopee) },
+      { name: "TikTok", data: stats.trendData.map((item) => item.tiktok) }
     ],
     options: {
-      chart: { type: 'area', toolbar: { show: false }, fontFamily: 'inherit', zoom: { enabled: false } },
-      colors: ['#8B5CF6', '#EE4D2D', '#000000'],
+      chart: {
+        type: "area",
+        toolbar: { show: false },
+        fontFamily: "inherit",
+        zoom: { enabled: false }
+      },
+      colors: ["#8B5CF6", "#EE4D2D", "#000000"],
       dataLabels: { enabled: false },
-      stroke: { curve: 'smooth', width: [3, 2, 2] },
-      fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.2, opacityTo: 0, stops: [0, 90, 100] } },
-      xaxis: { categories: stats.trendData.map(d => d.name), axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { fontSize: '12px', colors: '#94A3B8' } } },
-      yaxis: { labels: { style: { fontSize: '12px', colors: '#94A3B8' }, formatter: (val: number) => `Rp ${(val/1000000).toFixed(1)}M` } },
-      grid: { borderColor: '#F1F5F9', strokeDashArray: 4 },
+      stroke: { curve: "smooth", width: [3, 2, 2] },
+      fill: {
+        type: "gradient",
+        gradient: { shadeIntensity: 1, opacityFrom: 0.2, opacityTo: 0, stops: [0, 90, 100] }
+      },
+      xaxis: {
+        categories: stats.trendData.map((item) => item.name),
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        labels: { style: { fontSize: "12px", colors: "#94A3B8" } }
+      },
+      yaxis: {
+        labels: {
+          style: { fontSize: "12px", colors: "#94A3B8" },
+          formatter: (value: number) => `Rp ${(value / 1000000).toFixed(1)}M`
+        }
+      },
+      grid: { borderColor: "#F1F5F9", strokeDashArray: 4 },
       legend: { show: false },
-      tooltip: { style: { fontSize: '13px' }, y: { formatter: (val: number) => formatRp(val) } }
+      tooltip: {
+        style: { fontSize: "13px" },
+        y: { formatter: (value: number) => formatRp(value) }
+      }
     } as ApexCharts.ApexOptions
   };
 
   const chartProfitMargin = {
     series: [
-      { name: 'Profit Bersih', type: 'column', data: stats.profitMarginData.map(d => d.profit) },
-      { name: 'Margin (%)', type: 'line', data: stats.profitMarginData.map(d => d.margin) }
+      { name: "Profit Bersih", type: "column", data: stats.profitMarginData.map((item) => item.profit) },
+      { name: "Margin (%)", type: "line", data: stats.profitMarginData.map((item) => item.margin) }
     ],
     options: {
-      chart: { type: 'line', toolbar: { show: false }, fontFamily: 'inherit' },
-      colors: ['#10B981', '#8B5CF6'],
-      stroke: { width: [0, 3], curve: 'smooth' },
-      xaxis: { categories: stats.profitMarginData.map(d => d.name), axisBorder: { show: false }, axisTicks: { show: false }, labels: { style: { fontSize: '12px', colors: '#94A3B8' } } },
+      chart: { type: "line", toolbar: { show: false }, fontFamily: "inherit" },
+      colors: ["#10B981", "#8B5CF6"],
+      stroke: { width: [0, 3], curve: "smooth" },
+      xaxis: {
+        categories: stats.profitMarginData.map((item) => item.name),
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        labels: { style: { fontSize: "12px", colors: "#94A3B8" } }
+      },
       yaxis: [
-        { title: { text: "Profit", style: { fontSize: '12px' } }, labels: { style: { fontSize: '12px', colors: '#94A3B8' }, formatter: (val: number) => `Rp ${(val/1000000).toFixed(1)}M` } },
-        { opposite: true, title: { text: "Margin %", style: { fontSize: '12px' } }, labels: { style: { fontSize: '12px', colors: '#94A3B8' }, formatter: (val: number) => val + '%' } }
+        {
+          title: { text: "Profit", style: { fontSize: "12px" } },
+          labels: {
+            style: { fontSize: "12px", colors: "#94A3B8" },
+            formatter: (value: number) => `Rp ${(value / 1000000).toFixed(1)}M`
+          }
+        },
+        {
+          opposite: true,
+          title: { text: "Margin %", style: { fontSize: "12px" } },
+          labels: {
+            style: { fontSize: "12px", colors: "#94A3B8" },
+            formatter: (value: number) => `${value}%`
+          }
+        }
       ],
-      grid: { borderColor: '#F1F5F9', strokeDashArray: 4 },
+      grid: { borderColor: "#F1F5F9", strokeDashArray: 4 },
       legend: { show: false },
-      tooltip: { shared: true, intersect: false, style: { fontSize: '13px' }, y: { formatter: (val: number, { seriesIndex }: any) => seriesIndex === 0 ? formatRp(val) : val + '%' } }
+      tooltip: {
+        shared: true,
+        intersect: false,
+        style: { fontSize: "13px" },
+        y: {
+          formatter: (value: number, { seriesIndex }: any) => seriesIndex === 0 ? formatRp(value) : `${value}%`
+        }
+      }
     } as ApexCharts.ApexOptions
   };
 
-  if (loading) return <div className="p-10 text-[15px] text-slate-500 font-medium flex justify-center items-center h-screen">Menyiapkan Data Dashboard...</div>;
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center p-10 text-[15px] font-medium text-slate-500">
+        Menyiapkan Data Dashboard...
+      </div>
+    );
+  }
 
   return (
-    <main className="flex-1 p-8 bg-[#F8FAFC] min-h-screen font-sans text-slate-800">
-      
-      {/* --- HEADER --- */}
-      <div className="flex justify-between items-center mb-6">
+    <main className="min-h-screen flex-1 bg-[#F8FAFC] p-8 font-sans text-slate-800">
+      <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Dashboard</h1>
-          <p className="text-[15px] text-slate-500 mt-1 font-medium">Ringkasan keuangan performa toko gabungan (Real-Data)</p>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900">Dashboard</h1>
+          <p className="mt-1 text-[15px] font-medium text-slate-500">Ringkasan keuangan performa toko gabungan berbasis data real</p>
         </div>
+
         <div className="flex items-center gap-4">
-          
-          {/* DATE PICKER CUSTOM (Pop-up) */}
           <div className="relative z-50">
-            <button 
+            <button
               onClick={() => {
                 setTempDateRange(dateRange);
                 setIsDatePickerOpen(!isDatePickerOpen);
               }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-colors text-[14px] font-medium text-slate-700"
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-[14px] font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
             >
               <Calendar size={18} className="text-indigo-500" />
-              {dateRange.start && dateRange.end 
-                ? `${dateRange.start} - ${dateRange.end}` 
-                : "Semua Waktu"}
+              {dateRange.start || dateRange.end ? `${dateRange.start || "Awal"} - ${dateRange.end || "Sekarang"}` : "Semua Waktu"}
             </button>
 
             {isDatePickerOpen && (
-              <div className="absolute right-0 top-full mt-2 w-[500px] bg-white border border-slate-200 rounded-xl shadow-xl flex flex-col overflow-hidden">
-                <div className="flex flex-row h-[280px]">
-                  {/* Sidebar Preset */}
-                  <div className="w-40 border-r border-slate-100 bg-slate-50/50 p-2 flex flex-col gap-1 overflow-y-auto">
-                    <button onClick={() => handlePresetDate(0)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Hari ini</button>
-                    <button onClick={() => handlePresetDate(1)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Kemarin</button>
-                    <button onClick={() => handlePresetDate(7)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">7 hari terakhir</button>
-                    <button onClick={() => handlePresetDate(30)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">30 hari terakhir</button>
-                    <button onClick={() => handlePresetDate(90)} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">3 bulan terakhir</button>
-                    <button onClick={() => setTempDateRange({start: '', end: ''})} className="text-left px-3 py-2 text-sm text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 rounded-md transition-colors">Semua waktu</button>
+              <div className="absolute right-0 top-full mt-2 flex w-[500px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                <div className="flex h-[280px] flex-row">
+                  <div className="flex w-40 flex-col gap-1 overflow-y-auto border-r border-slate-100 bg-slate-50/50 p-2">
+                    <button onClick={() => handlePresetDate(0)} className="rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700">Hari ini</button>
+                    <button onClick={() => handlePresetDate(1)} className="rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700">Kemarin</button>
+                    <button onClick={() => handlePresetDate(7)} className="rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700">7 hari terakhir</button>
+                    <button onClick={() => handlePresetDate(30)} className="rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700">30 hari terakhir</button>
+                    <button onClick={() => handlePresetDate(90)} className="rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700">3 bulan terakhir</button>
+                    <button onClick={() => setTempDateRange({ start: "", end: "" })} className="rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-indigo-50 hover:text-indigo-700">Semua waktu</button>
                   </div>
-                  
-                  {/* Input Area */}
-                  <div className="flex-1 p-5 flex flex-col">
-                    <h4 className="font-medium text-slate-900 mb-4">Atur Tanggal Kustom</h4>
-                    <div className="flex items-center gap-4 mb-auto">
+
+                  <div className="flex flex-1 flex-col p-5">
+                    <h4 className="mb-4 font-medium text-slate-900">Atur Tanggal Kustom</h4>
+
+                    <div className="mb-auto flex items-center gap-4">
                       <div className="flex-1">
-                        <label className="block text-xs font-medium text-slate-500 mb-1.5">Mulai Tanggal</label>
-                        <input 
-                          type="date" 
+                        <label className="mb-1.5 block text-xs font-medium text-slate-500">Mulai Tanggal</label>
+                        <input
+                          type="date"
                           value={tempDateRange.start}
-                          onChange={(e) => setTempDateRange(prev => ({...prev, start: e.target.value}))}
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          onChange={(event) => setTempDateRange((prev) => ({ ...prev, start: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         />
                       </div>
                       <div className="flex-1">
-                        <label className="block text-xs font-medium text-slate-500 mb-1.5">Sampai Tanggal</label>
-                        <input 
-                          type="date" 
+                        <label className="mb-1.5 block text-xs font-medium text-slate-500">Sampai Tanggal</label>
+                        <input
+                          type="date"
                           value={tempDateRange.end}
-                          onChange={(e) => setTempDateRange(prev => ({...prev, end: e.target.value}))}
-                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          onChange={(event) => setTempDateRange((prev) => ({ ...prev, end: event.target.value }))}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         />
                       </div>
                     </div>
 
-                    {/* Aksi Bawah */}
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                      <button 
-                        onClick={() => { setDateRange({start: '', end: ''}); setIsDatePickerOpen(false); }}
-                        className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-md uppercase tracking-wider transition-colors"
+                    <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                      <button
+                        onClick={() => {
+                          setDateRange({ start: "", end: "" });
+                          setTempDateRange({ start: "", end: "" });
+                          setIsDatePickerOpen(false);
+                        }}
+                        className="rounded-md bg-red-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-red-600 transition-colors hover:bg-red-100"
                       >
                         Reset
                       </button>
                       <div className="flex items-center gap-2">
-                        <button 
+                        <button
                           onClick={() => setIsDatePickerOpen(false)}
-                          className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                          className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
                         >
                           Cancel
                         </button>
-                        <button 
+                        <button
                           onClick={() => {
                             setDateRange(tempDateRange);
                             setIsDatePickerOpen(false);
                           }}
-                          className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+                          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700"
                         >
                           Apply
                         </button>
@@ -357,182 +731,204 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="w-11 h-11 bg-white border border-slate-200 rounded-full flex items-center justify-center relative shadow-sm">
+          <div className="relative flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm">
             <Bell size={20} className="text-slate-600" />
-            <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
+            <span className="absolute right-2.5 top-2.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-red-500" />
           </div>
         </div>
       </div>
 
-      {/* --- RINGKASAN BUKU KAS & OPERASIONAL INTERNAL --- */}
-      <div className="mb-10">
-        <h3 className="text-[14px] font-bold text-slate-500 uppercase tracking-wider mb-4">Pengeluaran Internal Bisnis</h3>
-        {/* Responsive Grid: Bertahap dari 2 -> 3 -> 4 -> 7 kolom */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-3 md:gap-4">
+      <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <TopCard title="Total Omzet" value={formatRp(totalOmzet)} icon={<ShoppingBag />} iconBg="bg-blue-100" iconColor="text-blue-600" data={stats.trendData.map((item) => item.total)} stroke="#2563EB" />
+        <TopCard title="Dana Cair" value={formatRp(totalNet)} icon={<Banknote />} iconBg="bg-emerald-100" iconColor="text-emerald-600" data={stats.trendData.map((item) => item.total)} stroke="#10B981" />
+        <TopCard title="Total HPP" value={formatRp(totalHpp)} icon={<Package />} iconBg="bg-orange-100" iconColor="text-orange-600" data={stats.trendData.map((item) => item.total)} stroke="#F97316" />
+        <TopCard title="Potongan MP" value={formatRp(totalPengeluaranMP)} icon={<Receipt />} iconBg="bg-red-100" iconColor="text-red-600" data={stats.trendData.map((item) => item.total)} stroke="#EF4444" />
+        <TopCard title="Internal Operasional" value={formatRp(totalPengeluaranInternalOperasional)} icon={<Briefcase />} iconBg="bg-amber-100" iconColor="text-amber-600" data={stats.trendData.map((item) => item.total)} stroke="#F59E0B" />
+        <TopCard title="Laba Bersih" value={formatRp(trueNetProfit)} icon={<CircleDollarSign />} iconBg="bg-emerald-100" iconColor="text-emerald-600" data={stats.trendData.map((item) => item.profit)} stroke={trueNetProfit < 0 ? "#EF4444" : "#10B981"} isHighlight tone={trueNetProfit < 0 ? "red" : "green"} />
+        <TopCard title="Margin Bersih" value={`${marginBersih.toFixed(1)}%`} icon={<TrendingUp />} iconBg="bg-violet-100" iconColor="text-violet-600" data={stats.trendData.map((item) => item.margin)} stroke="#8B5CF6" />
+        <TopCard title="Total Order" value={totalOrder.toLocaleString("id-ID")} icon={<Package />} iconBg="bg-slate-100" iconColor="text-slate-700" data={stats.trendData.map((item) => item.total)} stroke="#64748B" />
+      </section>
+
+      <section className="mb-8">
+        <h3 className="mb-4 text-[14px] font-bold uppercase tracking-wider text-slate-500">Operasional Internal & Pembelian Stok</h3>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4 xl:grid-cols-7">
           <MiniMetricCard label="Operasional" value={formatRp(stats.internalCosts.operasional)} icon={<Briefcase />} color="text-amber-500 bg-amber-50" />
           <MiniMetricCard label="Marketing" value={formatRp(stats.internalCosts.marketing)} icon={<Megaphone />} color="text-amber-500 bg-amber-50" />
           <MiniMetricCard label="Maintenance" value={formatRp(stats.internalCosts.maintenance)} icon={<Wrench />} color="text-amber-500 bg-amber-50" />
           <MiniMetricCard label="Karyawan" value={formatRp(stats.internalCosts.karyawan)} icon={<Users2 />} color="text-amber-500 bg-amber-50" />
-          <MiniMetricCard label="Beli Bahan" value={formatRp(stats.internalCosts.beliBahan)} icon={<Truck />} color="text-amber-500 bg-amber-50" />
+          <MiniMetricCard label="Beli Bahan / Stok" value={formatRp(stats.internalCosts.beliBahan)} icon={<Truck />} color="text-blue-500 bg-blue-50" />
           <MiniMetricCard label="Biaya Gaji" value={formatRp(stats.internalCosts.gaji)} icon={<Wallet />} color="text-amber-500 bg-amber-50" />
           <MiniMetricCard label="Perlengkapan" value={formatRp(stats.internalCosts.perlengkapan)} icon={<FileBox />} color="text-amber-500 bg-amber-50" />
         </div>
-      </div>
+      </section>
 
-{/* --- ROW 1: TOP 5 METRICS --- */}
-      {/* Di HP 1 kolom -> Tablet 2 kolom -> PC Kecil 3 Kolom -> Monitor Besar 5 Kolom */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 md:gap-5 mb-8">
-        <TopCard title="Total Omzet Shopee" value={formatRp(stats.omzetShopee)} icon={<ShoppingBag />} iconBg="bg-orange-100" iconColor="text-[#EE4D2D]" data={stats.trendData.map(d=>d.shopee)} stroke="#EE4D2D" />
-        <TopCard title="Total Omzet TikTok" value={formatRp(stats.omzetTikTok)} icon={<ShoppingBag />} iconBg="bg-slate-200" iconColor="text-slate-900" data={stats.trendData.map(d=>d.tiktok)} stroke="#000000" />
-        <TopCard title="Total Pengeluaran (Semua)" value={formatRp(totalPengeluaranAll)} icon={<TrendingDown />} iconBg="bg-red-100" iconColor="text-red-600" data={stats.trendData.map(d=>d.total)} stroke="#EF4444" />
-        <TopCard title="Laba Bersih Bisnis" value={formatRp(trueNetProfit)} icon={<CircleDollarSign />} iconBg="bg-emerald-100" iconColor="text-emerald-600" data={stats.trendData.map(d=>d.profit)} stroke="#10B981" isHighlight />
-        <TopCard title="Total Order Gabungan" value={totalOrder.toLocaleString()} icon={<Package />} iconBg="bg-blue-100" iconColor="text-blue-600" data={stats.trendData.map(d=>d.total)} stroke="#3B82F6" />
-      </div>
-
-      {/* --- HOLY GRAIL RESPONSIVE LAYOUT (MAIN & RIGHT ASIDE) --- */}
-      {/* Di HP: Atas-Bawah (flex-col). Di Monitor Besar: Kiri-Kanan (xl:flex-row) */}
-      <div className="flex flex-col xl:flex-row gap-6 mb-8 w-full">
-        
-        {/* MAIN CONTENT (Kiri / Tengah - Mengambil sisa ruang) */}
-        <div className="flex-1 flex flex-col gap-6 min-w-0">
-          
-          {/* Baris Atas Main: Donut Chart & Area Chart */}
-          <div className="flex flex-col lg:flex-row gap-6">
-            <div className="w-full lg:w-1/3 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-              <h3 className="text-[16px] font-bold text-slate-900 mb-4">Omzet per Marketplace</h3>
-              <div className="flex-1 relative flex items-center justify-center -mt-4">
+      <div className="mb-8 flex w-full flex-col gap-6 xl:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="flex flex-col gap-6 lg:flex-row">
+            <div className="flex w-full flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:w-1/3">
+              <h3 className="mb-4 text-[16px] font-bold text-slate-900">Omzet per Marketplace</h3>
+              <div className="relative -mt-4 flex flex-1 items-center justify-center">
                 <ReactApexChart options={chartMarketplace.options} series={chartMarketplace.series} type="donut" height={240} />
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-2">
-                  <span className="text-[12px] text-slate-500 font-medium">Total Omzet</span>
+                <div className="pointer-events-none absolute inset-0 mt-2 flex flex-col items-center justify-center">
+                  <span className="text-[12px] font-medium text-slate-500">Total Omzet</span>
                   <span className="text-[16px] font-black text-slate-800">{formatRp(totalOmzet)}</span>
                 </div>
               </div>
+
               <div className="mt-4 space-y-4">
-                <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#EE4D2D]" /><span className="text-[14px] font-medium text-slate-600">Shopee</span></div><div className="text-right"><p className="text-[14px] font-bold text-slate-800">{formatRp(stats.omzetShopee)}</p></div></div>
-                <div className="flex justify-between items-center"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#000000]" /><span className="text-[14px] font-medium text-slate-600">TikTok Shop</span></div><div className="text-right"><p className="text-[14px] font-bold text-slate-800">{formatRp(stats.omzetTikTok)}</p></div></div>
+                <LegendAmount color="bg-[#EE4D2D]" label="Shopee" value={formatRp(stats.omzetShopee)} />
+                <LegendAmount color="bg-black" label="TikTok Shop" value={formatRp(stats.omzetTikTok)} />
               </div>
             </div>
 
-            <div className="flex-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-              <div className="flex justify-between items-center mb-4">
+            <div className="flex flex-1 flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-[16px] font-bold text-slate-900">Tren Omzet Berjalan</h3>
                 <div className="flex items-center gap-4 text-[12px] font-bold">
-                  <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#EE4D2D]" /> Shopee</span>
-                  <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#000000]" /> TikTok Shop</span>
-                  <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#8B5CF6]" /> Total</span>
+                  <ChartLegend color="bg-[#EE4D2D]" label="Shopee" />
+                  <ChartLegend color="bg-black" label="TikTok Shop" />
+                  <ChartLegend color="bg-[#8B5CF6]" label="Total" />
                 </div>
               </div>
-              <div className="flex-1 w-full -ml-3">
+              <div className="-ml-3 w-full flex-1">
                 <ReactApexChart options={chartTrend.options} series={chartTrend.series} type="area" height={280} />
               </div>
             </div>
           </div>
 
-          {/* Baris Bawah Main: Line Chart Profit */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-            <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
               <h3 className="text-[16px] font-bold text-slate-900">Profit Bersih Harian & Margin</h3>
               <div className="flex items-center gap-4 text-[12px] font-bold">
-                <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded bg-[#10B981]" /> Profit</span>
-                <span className="flex items-center gap-1.5 text-slate-600"><div className="w-2.5 h-2.5 rounded-full bg-[#8B5CF6]" /> Margin (%)</span>
+                <ChartLegend color="bg-[#10B981]" label="Profit" />
+                <ChartLegend color="bg-[#8B5CF6]" label="Margin (%)" />
               </div>
             </div>
-            <div className="w-full -ml-3">
+            <div className="-ml-3 w-full">
               <ReactApexChart options={chartProfitMargin.options} series={chartProfitMargin.series} type="line" height={280} />
             </div>
           </div>
-
         </div>
 
-        {/* RIGHT ASIDE (Bilah Kanan - Ukuran Fix) */}
-        <aside className="w-full xl:w-[350px] 2xl:w-[400px] flex flex-col gap-6 shrink-0">
-          
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-            <h3 className="text-[16px] font-bold text-slate-900 mb-6">Rincian Potongan MP</h3>
-            <div className="space-y-6 flex-1 mt-2">
-              <ProgressRow label="Biaya Admin & Komisi" value={stats.adminKomisi} total={totalPengeluaranMP} color="bg-orange-500" icon={<Receipt size={14}/>} />
-              <ProgressRow label="Iklan & Promosi" value={stats.iklanPromosi} total={totalPengeluaranMP} color="bg-blue-500" icon={<TrendingUp size={14}/>} />
-              <ProgressRow label="Ongkir & Voucher" value={stats.ongkirVoucher} total={totalPengeluaranMP} color="bg-slate-800" icon={<Package size={14}/>} />
-              <ProgressRow label="Pajak & Biaya Lainnya" value={stats.lainnya + stats.pajak} total={totalPengeluaranMP} color="bg-emerald-500" icon={<Wallet size={14}/>} />
+        <aside className="flex w-full shrink-0 flex-col gap-6 xl:w-[350px] 2xl:w-[400px]">
+          <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="mb-6 text-[16px] font-bold text-slate-900">Rincian Potongan MP</h3>
+            <div className="mt-2 flex-1 space-y-6">
+              <ProgressRow label="Admin & Komisi" value={stats.adminKomisi} total={totalPengeluaranMP} color="bg-orange-500" icon={<Receipt size={14} />} />
+              <ProgressRow label="Iklan & GMV" value={stats.iklanPromosi} total={totalPengeluaranMP} color="bg-blue-500" icon={<TrendingUp size={14} />} />
+              <ProgressRow label="Ongkir & Voucher" value={stats.ongkirVoucher} total={totalPengeluaranMP} color="bg-slate-800" icon={<Package size={14} />} />
+              <ProgressRow label="Pajak" value={stats.pajak} total={totalPengeluaranMP} color="bg-emerald-500" icon={<Wallet size={14} />} />
+              <ProgressRow label="Biaya Lainnya" value={stats.lainnya} total={totalPengeluaranMP} color="bg-violet-500" icon={<TrendingDown size={14} />} />
             </div>
-            <div className="mt-8 pt-5 border-t border-slate-200 flex justify-between items-center">
-              <span className="text-[14px] font-bold text-slate-500">Total Potongan MP</span>
-              <span className="text-[16px] font-black text-red-600">-{formatRp(totalPengeluaranMP)}</span>
+
+            <div className="mt-8 border-t border-slate-200 pt-5">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-slate-500">Diskon Penjual</span>
+                <span className="text-[14px] font-black text-slate-800">{formatRp(stats.diskonPenjual)}</span>
+              </div>
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-slate-500">Biaya GMV / Iklan</span>
+                <span className="text-[14px] font-black text-red-600">{formatRp(stats.biayaGmv)}</span>
+              </div>
+              <div className="mb-3 flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2">
+                <span className="text-[13px] font-bold text-blue-700">Beli Bahan / Stok</span>
+                <span className="text-[14px] font-black text-blue-700">{formatRp(totalPembelianBahan)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                <span className="text-[14px] font-bold text-slate-500">Total Potongan Marketplace</span>
+                <span className="text-[16px] font-black text-red-600">-{formatRp(totalPengeluaranMP)}</span>
+              </div>
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-            <h3 className="text-[16px] font-bold text-slate-900 mb-5">Transaksi Laba Tertinggi</h3>
-            <div className="flex justify-between text-[11px] font-black text-slate-400 uppercase tracking-wider border-b pb-3 mb-4">
+          <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="mb-5 text-[16px] font-bold text-slate-900">Kontrol Data</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <StatusMini title="Retur / Batal" value={stats.returBatal} tone={stats.returBatal > 0 ? "red" : "green"} />
+              <StatusMini title="HPP Kosong" value={stats.hppKosong} tone={stats.hppKosong > 0 ? "red" : "green"} />
+              <StatusMini title="Order Shopee" value={stats.orderShopee} tone="slate" />
+              <StatusMini title="Order TikTok" value={stats.orderTikTok} tone="slate" />
+            </div>
+          </div>
+
+          <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="mb-5 text-[16px] font-bold text-slate-900">Transaksi Laba Tertinggi</h3>
+            <div className="mb-4 flex justify-between border-b pb-3 text-[11px] font-black uppercase tracking-wider text-slate-400">
               <span className="w-1/2">Order ID</span>
               <span className="w-1/4 text-right">Omzet</span>
               <span className="w-1/4 text-right">Profit</span>
             </div>
-            <div className="space-y-5 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
-              {stats.topOrders.map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center text-[13px]">
-                  <div className="w-1/2 flex items-center gap-3 pr-2">
-                    <div className={`p-2 rounded-lg shrink-0 ${item.marketplace === 'Shopee' ? 'bg-orange-100 text-[#EE4D2D]' : 'bg-slate-100 text-slate-800'}`}>
+
+            <div className="scrollbar-hide max-h-[300px] space-y-5 overflow-y-auto pr-2">
+              {stats.topOrders.length > 0 ? stats.topOrders.map((item, index) => (
+                <div key={`${item.name}-${index}`} className="flex items-center justify-between text-[13px]">
+                  <div className="flex w-1/2 items-center gap-3 pr-2">
+                    <div className={`shrink-0 rounded-lg p-2 ${item.marketplace === "Shopee" ? "bg-orange-100 text-[#EE4D2D]" : "bg-slate-100 text-slate-800"}`}>
                       <Package size={16} />
                     </div>
-                    <span className="font-bold text-slate-700 truncate" title={item.name}>{item.name}</span>
+                    <span className="truncate font-bold text-slate-700" title={item.name}>{item.name}</span>
                   </div>
                   <span className="w-1/4 text-right font-medium text-slate-600">{formatRp(item.omzet)}</span>
-                  <span className="w-1/4 text-right font-black text-emerald-600">{formatRp(item.profit)}</span>
+                  <span className={`w-1/4 text-right font-black ${item.profit < 0 ? "text-red-600" : "text-emerald-600"}`}>{formatRp(item.profit)}</span>
                 </div>
-              ))}
+              )) : (
+                <p className="py-6 text-center text-sm font-bold text-slate-400">Belum ada transaksi profit.</p>
+              )}
             </div>
           </div>
-
         </aside>
-
       </div>
     </main>
   );
 }
 
-// ==========================================
-// Sub-Komponen UI (Komponen Kecil)
-// ==========================================
-
 function MiniMetricCard({ label, value, icon, color }: any) {
   return (
-    <div className={`p-4 rounded-2xl border border-slate-200 shadow-sm bg-white flex items-center gap-3 hover:-translate-y-1 transition-transform duration-300 min-w-0`}>
-      <div className={`p-2.5 rounded-xl shrink-0 ${color}`}>
+    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-transform duration-300 hover:-translate-y-1">
+      <div className={`shrink-0 rounded-xl p-2.5 ${color}`}>
         {React.cloneElement(icon, { size: 18 })}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 truncate" title={label}>{label}</p>
-        <p className="text-[15px] font-black text-slate-900 leading-none tracking-tight truncate" title={value}>{value}</p>
+        <p className="mb-0.5 truncate text-[10px] font-bold uppercase tracking-wider text-slate-400" title={label}>{label}</p>
+        <p className="truncate text-[15px] font-black leading-none tracking-tight text-slate-900" title={value}>{value}</p>
       </div>
     </div>
   );
 }
 
-function TopCard({ title, value, icon, iconBg, iconColor, data, stroke, isHighlight = false }: any) {
+function TopCard({ title, value, icon, iconBg, iconColor, data, stroke, isHighlight = false, tone = "green" }: any) {
+  const highlightClass = tone === "red"
+    ? "bg-red-600 border-red-700 text-white shadow-md"
+    : "bg-emerald-600 border-emerald-700 text-white shadow-md";
+
   const sparklineOptions = {
-    chart: { type: 'line', sparkline: { enabled: true }, animations: { enabled: true } },
-    stroke: { curve: 'smooth', width: 2 },
+    chart: { type: "line", sparkline: { enabled: true }, animations: { enabled: true } },
+    stroke: { curve: "smooth", width: 2 },
     colors: [stroke],
-    tooltip: { fixed: { enabled: false }, x: { show: false }, y: { title: { formatter: () => '' } }, marker: { show: false } }
+    tooltip: {
+      fixed: { enabled: false },
+      x: { show: false },
+      y: { title: { formatter: () => "" } },
+      marker: { show: false }
+    }
   } as ApexCharts.ApexOptions;
 
   return (
-    <div className={`p-4 rounded-xl border ${isHighlight ? 'bg-emerald-600 border-emerald-700 text-white shadow-md' : 'bg-white border-slate-200 text-slate-900 shadow-sm'} flex flex-col justify-between hover:shadow-md transition-shadow min-w-0`}>
-      <div className="flex items-center gap-2.5 mb-3 min-w-0">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isHighlight ? 'bg-white/20 text-white' : `${iconBg} ${iconColor}`}`}>
+    <div className={`flex min-w-0 flex-col justify-between rounded-xl border p-4 transition-shadow hover:shadow-md ${isHighlight ? highlightClass : "border-slate-200 bg-white text-slate-900 shadow-sm"}`}>
+      <div className="mb-3 flex min-w-0 items-center gap-2.5">
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${isHighlight ? "bg-white/20 text-white" : `${iconBg} ${iconColor}`}`}>
           {React.cloneElement(icon, { size: 16 })}
         </div>
-        <span className={`text-[12px] font-bold tracking-tight truncate flex-1 ${isHighlight ? 'text-emerald-100' : 'text-slate-500'}`} title={title}>
+        <span className={`flex-1 truncate text-[12px] font-bold tracking-tight ${isHighlight ? "text-white/90" : "text-slate-500"}`} title={title}>
           {title}
         </span>
       </div>
       <div className="min-w-0">
-        <h3 className={`text-[20px] font-black tracking-tight mb-1.5 leading-none truncate ${isHighlight ? 'text-white' : 'text-slate-900'}`} title={value}>
+        <h3 className={`mb-1.5 truncate text-[20px] font-black leading-none tracking-tight ${isHighlight ? "text-white" : "text-slate-900"}`} title={value}>
           {value}
         </h3>
         <div className="h-8 w-full opacity-80">
-          <ReactApexChart options={sparklineOptions} series={[{ data: data }]} type="line" height={32} />
+          <ReactApexChart options={sparklineOptions} series={[{ data }]} type="line" height={32} />
         </div>
       </div>
     </div>
@@ -541,21 +937,64 @@ function TopCard({ title, value, icon, iconBg, iconColor, data, stroke, isHighli
 
 function ProgressRow({ label, value, total, color, icon }: any) {
   const percentage = total > 0 ? (value / total) * 100 : 0;
-  const formatRp = (angka: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(angka);
+  const safePercentage = Math.max(0, Math.min(100, percentage));
+  const formatRp = (angka: number) => new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0
+  }).format(Number(angka) || 0);
+
   return (
     <div>
-      <div className="flex justify-between items-center text-[13px] mb-2">
+      <div className="mb-2 flex items-center justify-between text-[13px]">
         <div className="flex items-center gap-2 font-medium text-slate-700">
-           <div className={`p-1.5 rounded-md text-white ${color} shadow-sm`}>{icon}</div> {label}
+          <div className={`rounded-md p-1.5 text-white shadow-sm ${color}`}>{icon}</div>
+          {label}
         </div>
         <div className="flex items-center gap-3">
           <span className="font-bold text-slate-800">{formatRp(value)}</span>
-          <span className="text-slate-400 font-bold w-10 text-right">{percentage.toFixed(1)}%</span>
+          <span className="w-10 text-right font-bold text-slate-400">{percentage.toFixed(1)}%</span>
         </div>
       </div>
-      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden shadow-inner">
-        <div className={`h-full ${color} rounded-full`} style={{ width: `${percentage}%` }} />
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 shadow-inner">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${safePercentage}%` }} />
       </div>
+    </div>
+  );
+}
+
+function LegendAmount({ color, label, value }: { color: string; label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className={`h-3 w-3 rounded-sm ${color}`} />
+        <span className="text-[14px] font-medium text-slate-600">{label}</span>
+      </div>
+      <p className="text-right text-[14px] font-bold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+function ChartLegend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-slate-600">
+      <div className={`h-2.5 w-2.5 rounded-full ${color}`} />
+      {label}
+    </span>
+  );
+}
+
+function StatusMini({ title, value, tone }: { title: string; value: number; tone: "red" | "green" | "slate" }) {
+  const styles = {
+    red: "bg-red-50 text-red-700 border-red-100",
+    green: "bg-emerald-50 text-emerald-700 border-emerald-100",
+    slate: "bg-slate-50 text-slate-700 border-slate-100"
+  };
+
+  return (
+    <div className={`rounded-xl border p-3 ${styles[tone]}`}>
+      <p className="text-[11px] font-black uppercase tracking-wider opacity-70">{title}</p>
+      <p className="mt-1 text-xl font-black">{value.toLocaleString("id-ID")}</p>
     </div>
   );
 }
