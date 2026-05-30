@@ -180,21 +180,20 @@ export default function FinanceShopeePage() {
     };
   };
 
-  const rowsFromWorkbook = (workbook: XLSX.WorkBook) => {
-    const allRows: unknown[][] = [];
-    workbook.SheetNames.forEach((sheetName) => {
-      const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" }) as unknown[][];
-      allRows.push(...sheetRows);
-    });
-    return allRows;
-  };
-
   const findHeader = (rows: unknown[][]) => {
     for (let i = 0; i < Math.min(rows.length, 60); i++) {
       const text = String((rows[i] || []).join(" ")).toLowerCase().replace(/[^a-z0-9]/g, "");
       if ((text.includes("nopesanan") || text.includes("orderid")) && (text.includes("totalpenghasilan") || text.includes("danadilepaskan") || text.includes("biayaadministrasi"))) return i;
     }
     return -1;
+  };
+
+  const rowsFromWorkbook = (workbook: XLSX.WorkBook) => {
+    for (const sheetName of workbook.SheetNames) {
+      const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" }) as unknown[][];
+      if (findHeader(sheetRows) !== -1) return sheetRows;
+    }
+    return [];
   };
 
   const normalizeHeader = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
