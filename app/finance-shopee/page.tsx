@@ -198,7 +198,15 @@ export default function FinanceShopeePage() {
 
   const normalizeHeader = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-  const findIdx = (headers: string[], names: string[]) => headers.findIndex((header) => names.some((name) => normalizeHeader(header) === normalizeHeader(name) || normalizeHeader(header).includes(normalizeHeader(name))));
+  const findIdx = (headers: string[], names: string[]) => {
+    const normalizedHeaders = headers.map((header) => normalizeHeader(header));
+    const normalizedNames = names.map((name) => normalizeHeader(name));
+
+    const exactIndex = normalizedHeaders.findIndex((header) => normalizedNames.includes(header));
+    if (exactIndex !== -1) return exactIndex;
+
+    return normalizedHeaders.findIndex((header) => normalizedNames.some((name) => header.includes(name)));
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

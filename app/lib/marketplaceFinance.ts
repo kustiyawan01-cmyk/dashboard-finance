@@ -267,6 +267,8 @@ export const getProductSkuKeys = (product: ProductCostRow) => [
   product.marketplace_variation_id,
   product.variationId,
   product.variation_id,
+  product.internalSku,
+  product.internal_sku,
   product.sku,
   product.sku_produk,
   product.skuProduk,
@@ -284,7 +286,12 @@ export const findProductCost = (products: ProductCostRow[], platform: string, it
   if (itemSkuKeys.length === 0) return null;
 
   const matches = (products || []).filter((product) => {
-    if (normalizeKey(getProductPlatform(product)) !== platformKey) return false;
+    const productPlatformKeys = [
+      getProductPlatform(product),
+      ...(Array.isArray(product.platforms) ? product.platforms : []),
+    ].map(normalizeKey).filter(Boolean);
+
+    if (!productPlatformKeys.includes(platformKey) && !productPlatformKeys.includes("internal")) return false;
     const productSkuKeys = getProductSkuKeys(product);
     const skuMatched = itemSkuKeys.some((sku) => productSkuKeys.includes(sku));
     if (!skuMatched) return false;
@@ -386,7 +393,12 @@ export const calculateOrderHpp = (params: {
     const status: HppItemResult["hppStatus"] = matchedProduct && hpp > 0 ? "Valid" : "Belum Mapping";
 
     if (status === "Belum Mapping") {
-      missingSkus.push(item.marketplaceSku || item.skuId || item.variationId || item.productName || "SKU kosong");
+      missingSkus.push(
+        item.marketplaceSku ||
+        item.skuId ||
+        item.variationId ||
+        (item.productName && item.productName !== "-" ? item.productName : "SKU kosong")
+      );
     }
 
     if (firstHpp === 0 && hpp > 0) firstHpp = hpp;

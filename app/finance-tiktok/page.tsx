@@ -968,13 +968,13 @@ export default function FinanceTikTokPage() {
   };
 
   return (
-    <main className="flex-1 h-screen overflow-hidden bg-slate-50 text-slate-800 p-4 md:p-8 flex flex-col">
-      <header className="mb-6 flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
+    <main className="flex-1 h-screen min-w-0 overflow-x-hidden overflow-y-auto bg-slate-50 text-slate-800 p-3 sm:p-4 lg:p-6 xl:p-8 flex flex-col">
+      <header className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between lg:mb-6 lg:gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2"><WalletCards size={24} /> Finance TikTok</h2>
           <p className="text-sm text-slate-500 mt-1">Profit dihitung dari settlement TikTok + sales item + master HPP platform/SKU/tanggal berlaku.</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap xl:justify-end">
           <button onClick={exportMissingHpp} className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 hover:bg-slate-50"><Download size={16} /> Export HPP Kosong</button>
           <button onClick={handleRecalculateHpp} disabled={finances.length === 0} className="bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 hover:bg-slate-50 disabled:opacity-50"><CheckCircle2 size={16} /> Hitung Ulang HPP</button>
           {user?.role === "admin" && <button onClick={handleSaveToDatabase} disabled={isSaving || finances.length === 0} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 disabled:opacity-50 hover:bg-emerald-700"><Save size={16} /> {isSaving ? "Menyimpan..." : "Simpan Finance"}</button>}
@@ -984,7 +984,7 @@ export default function FinanceTikTokPage() {
 
       {summary.missing > 0 && <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm font-bold flex items-center gap-2"><AlertTriangle size={18} /> Ada {summary.missing} transaksi yang HPP-nya belum mapping. Klik Hitung Ulang HPP setelah Master HPP diperbaiki.</div>}
 
-      <section className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <section className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 lg:mb-6 lg:gap-4">
         <Metric title="Order" value={summary.totalOrder} tone="blue" />
         <Metric title="Omzet" value={formatRupiah(summary.totalRevenue)} tone="slate" />
         <Metric title="Dana Cair" value={formatRupiah(summary.totalNet)} tone="green" />
@@ -997,15 +997,15 @@ export default function FinanceTikTokPage() {
         <Metric title="HPP Kosong" value={summary.missing} tone={summary.missing > 0 ? "red" : "green"} />
       </section>
 
-      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1 min-h-0 flex flex-col">
-        <div className="p-4 border-b border-slate-200 grid grid-cols-1 xl:grid-cols-[1fr_auto_auto_auto] gap-3">
-          <div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} placeholder="Cari order, SKU, produk..." className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm outline-none focus:border-slate-900" /></div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold bg-white"><option>Semua Status</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select>
-          <select value={hppFilter} onChange={(e) => setHppFilter(e.target.value)} className="px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold bg-white"><option>Semua HPP</option><option>Valid</option><option>Belum Mapping</option><option>Dikesampingkan - Batal/Retur</option><option>Dikesampingkan - Non Order</option></select>
-          <div className="flex gap-2"><input type="date" value={dateRange.start} onChange={(e) => setDateRange((prev) => ({ ...prev, start: e.target.value }))} className="w-full px-3 py-3 rounded-xl border border-slate-200 text-sm" /><input type="date" value={dateRange.end} onChange={(e) => setDateRange((prev) => ({ ...prev, end: e.target.value }))} className="w-full px-3 py-3 rounded-xl border border-slate-200 text-sm" /></div>
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden shrink-0 h-[72vh] min-h-[560px] max-h-[760px] min-w-0 flex flex-col">
+        <div className="shrink-0 grid grid-cols-1 gap-3 border-b border-slate-200 p-3 sm:p-4 md:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+          <div className="relative min-w-0"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={globalSearch} onChange={(e) => setGlobalSearch(e.target.value)} placeholder="Cari order, SKU, produk..." className="w-full min-w-0 pl-10 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm outline-none focus:border-slate-900" /></div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full min-w-0 px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold bg-white"><option>Semua Status</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select>
+          <select value={hppFilter} onChange={(e) => setHppFilter(e.target.value)} className="w-full min-w-0 px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold bg-white"><option>Semua HPP</option><option>Valid</option><option>Belum Mapping</option><option>Dikesampingkan - Batal/Retur</option><option>Dikesampingkan - Non Order</option></select>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:col-span-2 2xl:col-span-1"><input type="date" value={dateRange.start} onChange={(e) => setDateRange((prev) => ({ ...prev, start: e.target.value }))} className="w-full min-w-0 px-3 py-3 rounded-xl border border-slate-200 text-sm" /><input type="date" value={dateRange.end} onChange={(e) => setDateRange((prev) => ({ ...prev, end: e.target.value }))} className="w-full min-w-0 px-3 py-3 rounded-xl border border-slate-200 text-sm" /></div>
         </div>
-        <div className="overflow-auto flex-1 min-h-0">
-          <table className="w-full min-w-[1320px] text-left">
+        <div className="relative flex-1 min-h-0 min-w-0 overflow-auto overscroll-contain">
+          <table className="w-full min-w-[1320px] text-left whitespace-nowrap">
             <thead className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur border-b border-slate-200 shadow-sm">
               <tr><Head title="Tanggal" onClick={() => requestSort("date")} icon={sortIcon("date")} /><Head title="Order ID" /><Head title="Status" /><Head title="Item" right /><Head title="Net" right onClick={() => requestSort("net")} icon={sortIcon("net")} /><Head title="Potongan" right /><Head title="HPP" right /><Head title="Profit" right /><Head title="Status HPP" /><Head title="SKU Belum Mapping" /><Head title="Aksi" /></tr>
             </thead>
@@ -1032,7 +1032,7 @@ export default function FinanceTikTokPage() {
             </tbody>
           </table>
         </div>
-        <div className="sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur px-4 py-3">
+        <div className="shrink-0 border-t border-slate-200 bg-white/95 backdrop-blur px-3 py-3 sm:px-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
               <p className="text-xs font-bold text-slate-500">
@@ -1052,29 +1052,29 @@ export default function FinanceTikTokPage() {
               </label>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1">
               <button
                 onClick={() => setCurrentPage(1)}
                 disabled={safeCurrentPage === 1}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Awal
               </button>
               <button
                 onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                 disabled={safeCurrentPage === 1}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Prev
               </button>
 
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
                 {generatePagination().map((page, idx) => (
                   <button
                     key={`${page}-${idx}`}
                     onClick={() => typeof page === "number" && setCurrentPage(page)}
                     disabled={page === "..."}
-                    className={`min-w-9 rounded-lg px-3 py-2 text-xs font-black transition-colors ${
+                    className={`min-w-9 shrink-0 rounded-lg px-3 py-2 text-xs font-black transition-colors ${
                       safeCurrentPage === page
                         ? "bg-slate-900 text-white"
                         : page === "..."
@@ -1090,14 +1090,14 @@ export default function FinanceTikTokPage() {
               <button
                 onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                 disabled={safeCurrentPage === totalPages}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next
               </button>
               <button
                 onClick={() => setCurrentPage(totalPages)}
                 disabled={safeCurrentPage === totalPages}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Akhir
               </button>
@@ -1128,9 +1128,9 @@ function Metric({ title, value, tone = "slate" }: { title: string; value: string
   };
 
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ring-1 transition-all hover:-translate-y-0.5 hover:shadow-md ${styles[tone]}`}>
+    <div className={`min-w-0 rounded-2xl border p-4 shadow-sm ring-1 transition-all hover:-translate-y-0.5 hover:shadow-md ${styles[tone]}`}>
       <p className={`text-[11px] font-black mb-1 ${labelStyles[tone]}`}>{title}</p>
-      <h3 className="text-xl font-black">{value}</h3>
+      <h3 className="break-words text-base font-black leading-tight sm:text-lg xl:text-xl">{value}</h3>
     </div>
   );
 }
